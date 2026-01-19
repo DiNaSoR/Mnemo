@@ -4,19 +4,21 @@
 
 # Mnemo
 
-Windows-first, token-safe **repo memory system** for Cursor (or any AI agent).
+Windows-first, token-safe **repo memory system** for AI coding agents.
 
-Mnemo is a PowerShell installer (`memory.ps1`) that scaffolds a structured memory layer under `.cursor/`, adds helper scripts for indexing/querying/linting, and optionally wires a pre-commit hook to keep the memory indexes up to date.
+> **Works with:** Cursor • Claude Code • Gemini Antigravity • OpenAI Codex • Windsurf • and more
+
+Mnemo scaffolds a structured memory layer under `.cursor/` as the single source of truth. Other agents can be configured to read from this same directory—no duplication needed.
 
 ### What you get
 
 - **Always-read layer**: `.cursor/memory/hot-rules.md`, `active-context.md`, `memo.md` (kept small + token-aware)
 - **Atomic lessons**: `.cursor/memory/lessons/L-XXX-*.md` with strict YAML frontmatter + generated index
 - **Monthly journal**: `.cursor/memory/journal/YYYY-MM.md` + generated digest + journal index
-- **Cursor rule enforcement**: `.cursor/rules/00-memory-system.mdc` (alwaysApply)
+- **Agent rule enforcement**: `.cursor/rules/00-memory-system.mdc` (Cursor-native, adaptable for others)
 - **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
 - **Optional SQLite FTS**: built if Python is available (`.cursor/memory/memory.sqlite`)
-- **Portable git hook**: `.githooks/pre-commit` (and a best-effort `.git/hooks/pre-commit`) to auto-rebuild + lint
+- **Portable git hook**: `.githooks/pre-commit` to auto-rebuild + lint
 
 ### Quickstart
 
@@ -125,6 +127,68 @@ Enable the portable hook with:
 git config core.hooksPath .githooks
 ```
 
+### Multi-Agent Support
+
+Mnemo uses `.cursor/` as the canonical memory directory. Here's how to configure other agents to use it:
+
+#### Claude Code
+
+Add to your `CLAUDE.md` at repo root:
+
+```markdown
+# Project Memory
+
+This project uses Mnemo for structured AI memory.
+
+## Read Order (ALWAYS)
+1. `.cursor/memory/hot-rules.md` - invariants
+2. `.cursor/memory/active-context.md` - current session
+3. `.cursor/memory/memo.md` - project truth
+
+## Search First, Then Fetch
+- `.cursor/memory/lessons/index.md` → find lesson ID → open specific lesson
+- `.cursor/memory/digests/YYYY-MM.digest.md` → before raw journal
+```
+
+#### Gemini Antigravity
+
+Create `.agent/rules/memory-system.md`:
+
+```markdown
+---
+description: Mnemo memory system integration
+---
+
+## Memory Location
+Read project memory from `.cursor/memory/`:
+- `hot-rules.md` - tiny invariants (read first)
+- `active-context.md` - current session state
+- `memo.md` - project truth + ownership
+- `lessons/index.md` - searchable lesson index
+- `digests/*.digest.md` - monthly summaries
+```
+
+#### OpenAI Codex
+
+Add to your root `AGENTS.md`:
+
+```markdown
+# Memory System
+
+This project uses Mnemo. Memory lives in `.cursor/memory/`.
+
+## Retrieval Order
+1. Read `.cursor/memory/hot-rules.md` first (tiny, <20 lines)
+2. Read `.cursor/memory/active-context.md` for current session
+3. Read `.cursor/memory/memo.md` for project truth
+4. Search `.cursor/memory/lessons/index.md` before creating new patterns
+5. Check `.cursor/memory/digests/` before raw journal archaeology
+```
+
+#### Windsurf / Others
+
+Point your agent's memory/context configuration to `.cursor/memory/`. The markdown files are agent-agnostic—only `.cursor/rules/*.mdc` is Cursor-specific.
+
 ### Requirements
 
 - **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7 (`pwsh`)
@@ -134,4 +198,3 @@ git config core.hooksPath .githooks
 ### License
 
 See `LICENSE`.
-
