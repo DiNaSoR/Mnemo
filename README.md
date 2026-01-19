@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/header.png" alt="Mnemo - A Memory System for AI Coding Agents" width="100%">
+</p>
+
 # Mnemo
 
 Windows-first, token-safe **repo memory system** for Cursor (or any AI agent).
