@@ -891,15 +891,41 @@ $journalJson = if (-not $journalEntries -or $journalEntries.Count -eq 0) { "[]" 
 Write-Utf8NoBom (Join-Path $MemoryDir "journal-index.json") $journalJson
 
 # Optional: build SQLite index if Python exists
-$python = Get-Command python -ErrorAction SilentlyContinue
-if ($null -ne $python) {
-  $pyScript = Join-Path $RepoRoot "scripts\memory\build-memory-sqlite.py"
-  if (Test-Path $pyScript) {
-    Write-Host "Python detected; building SQLite FTS index..." -ForegroundColor Cyan
-    & $python.Source $pyScript --repo $RepoRoot | Out-Host
+function Resolve-PythonCommand {
+  # Prefer a working Python executable (NOT the Microsoft Store stub).
+  $candidates = @(
+    @{ Kind = "python"; Args = @() },
+    @{ Kind = "py";     Args = @("-3") },
+    @{ Kind = "py";     Args = @() },
+    @{ Kind = "python3"; Args = @() }
+  )
+
+  foreach ($c in $candidates) {
+    $cmd = Get-Command $c.Kind -ErrorAction SilentlyContinue
+    if ($null -eq $cmd) { continue }
+
+    try {
+      # Validate it's real/working.
+      & $cmd.Source @($c.Args) -c "import sys; print(sys.version)" 1>$null 2>$null
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Path = $cmd.Source; Args = @($c.Args) }
+      }
+    } catch {
+      # ignore and continue
+    }
   }
+
+  return $null
+}
+
+$py = Resolve-PythonCommand
+$pyScript = Join-Path $RepoRoot "scripts\memory\build-memory-sqlite.py"
+if ($null -ne $py -and (Test-Path $pyScript)) {
+  Write-Host "Python detected; building SQLite FTS index..." -ForegroundColor Cyan
+  & $py.Path @($py.Args) $pyScript --repo $RepoRoot | Out-Host
 } else {
-  Write-Host "Python not found; skipping SQLite build." -ForegroundColor DarkYellow
+  Write-Host "Python not found (or not runnable); skipping SQLite build." -ForegroundColor DarkYellow
+  Write-Host "Tip: Install Python or enable the 'py' launcher, then re-run rebuild." -ForegroundColor DarkYellow
 }
 
 # Token usage monitoring
