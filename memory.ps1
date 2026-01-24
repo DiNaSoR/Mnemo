@@ -32,7 +32,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Ensure-Dir {
+function New-DirectoryIfMissing {
   param([Parameter(Mandatory=$true)][string]$Path)
   if (!(Test-Path $Path)) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
@@ -89,17 +89,17 @@ $GitDir       = Join-Path $RepoRoot ".git"
 $GitHooksDir  = Join-Path $GitDir "hooks"
 $GithooksDir  = Join-Path $RepoRoot ".githooks"
 
-Ensure-Dir $CursorDir
-Ensure-Dir $MemoryDir
-Ensure-Dir $RulesDir
-Ensure-Dir $JournalDir
-Ensure-Dir $DigestsDir
-Ensure-Dir $AdrDir
-Ensure-Dir $LessonsDir
-Ensure-Dir $TemplatesDir
-Ensure-Dir $ScriptsDir
-Ensure-Dir $MemScripts
-Ensure-Dir $GithooksDir
+New-DirectoryIfMissing $CursorDir
+New-DirectoryIfMissing $MemoryDir
+New-DirectoryIfMissing $RulesDir
+New-DirectoryIfMissing $JournalDir
+New-DirectoryIfMissing $DigestsDir
+New-DirectoryIfMissing $AdrDir
+New-DirectoryIfMissing $LessonsDir
+New-DirectoryIfMissing $TemplatesDir
+New-DirectoryIfMissing $ScriptsDir
+New-DirectoryIfMissing $MemScripts
+New-DirectoryIfMissing $GithooksDir
 
 $month = (Get-Date -Format "yyyy-MM")
 $today = (Get-Date -Format "yyyy-MM-dd")
@@ -502,7 +502,7 @@ Write-TextFile (Join-Path $RulesDir "00-memory-system.mdc") $memoryRule -ForceWr
 # -------------------------
 
 $AgentRulesDir = Join-Path $RepoRoot ".agent\rules"
-Ensure-Dir $AgentRulesDir
+New-DirectoryIfMissing $AgentRulesDir
 
 # Claude Code - CLAUDE.md
 $claudeMd = @"
