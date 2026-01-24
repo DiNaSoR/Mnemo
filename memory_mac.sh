@@ -368,6 +368,115 @@ SEARCH FIRST, THEN FETCH:
 EOF
 
 # -------------------------
+# Multi-agent bridge files
+# -------------------------
+
+AGENT_RULES_DIR="$REPO_ROOT/.agent/rules"
+mkdir -p "$AGENT_RULES_DIR"
+
+write_file "$REPO_ROOT/CLAUDE.md" <<'EOF'
+# Project Memory (Mnemo)
+
+This project uses Mnemo for structured AI memory.
+Memory lives in `.cursor/memory/` as the single source of truth.
+
+## Read Order (ALWAYS)
+1. `.cursor/memory/hot-rules.md` - tiny invariants (<20 lines)
+2. `.cursor/memory/active-context.md` - current session state
+3. `.cursor/memory/memo.md` - long-term project truth + ownership
+
+## Search First, Then Fetch
+- `.cursor/memory/lessons/index.md` → find lesson ID → open only that lesson file
+- `.cursor/memory/digests/YYYY-MM.digest.md` → before raw journal archaeology
+- `.cursor/memory/journal/YYYY-MM.md` → only for deep history
+
+## After Any Feature/Fix
+1. Update `active-context.md` during work
+2. Add journal entry when done
+3. Create lesson if you discovered a pitfall
+4. Update `memo.md` if project truth changed
+5. Clear `active-context.md` when task is merged
+EOF
+
+write_file "$AGENT_RULES_DIR/memory-system.md" <<'EOF'
+---
+description: Mnemo memory system - structured AI memory in .cursor/memory/
+alwaysApply: true
+---
+
+# Memory System (Mnemo)
+
+This project uses Mnemo for structured AI memory. All memory lives in `.cursor/memory/`.
+
+## Read Order (ALWAYS)
+1. `.cursor/memory/hot-rules.md` - tiny invariants (read first)
+2. `.cursor/memory/active-context.md` - current session state
+3. `.cursor/memory/memo.md` - project truth + ownership
+
+## Search First, Then Fetch
+- `.cursor/memory/lessons/index.md` - searchable lesson index
+- `.cursor/memory/digests/*.digest.md` - monthly summaries
+- `.cursor/memory/journal/*.md` - raw history (last resort)
+
+## Authority Order
+1. Lessons override everything
+2. active-context overrides memo/journal (but NOT lessons)
+3. memo.md is long-term truth
+4. Journal is history
+
+## After Any Task
+- Update active-context.md during work
+- Add journal entry when done
+- Create lesson if you discovered a pitfall
+- Clear active-context.md when task is merged
+EOF
+
+write_file "$REPO_ROOT/AGENTS.md" <<'EOF'
+# Memory System (Mnemo)
+
+This project uses Mnemo for structured AI memory.
+Memory location: `.cursor/memory/`
+
+## Retrieval Order
+1. Read `.cursor/memory/hot-rules.md` first (tiny, <20 lines)
+2. Read `.cursor/memory/active-context.md` for current session
+3. Read `.cursor/memory/memo.md` for project truth + ownership
+4. Search `.cursor/memory/lessons/index.md` before creating new patterns
+5. Check `.cursor/memory/digests/` before raw journal archaeology
+
+## Authority Order (highest to lowest)
+1. Lessons override EVERYTHING
+2. active-context.md overrides memo/journal (but NOT lessons)
+3. memo.md is long-term project truth
+4. Journal is history
+5. Existing codebase
+6. New suggestions (lowest priority)
+EOF
+
+write_file "$MEM_SCRIPTS_DIR/customization.md" <<'EOF'
+# Mnemo Memory Customization Prompt (paste into an AI)
+
+You are an AI coding agent. Your task is to **customize the Mnemo memory system** created by running the installer in the root of THIS repository.
+
+## Non-negotiable rules
+
+- **Do not lose legacy memory.** If you find an older memory system (e.g. `Archive/`, `.cursor_old/`, `docs/memory/`, etc.), copy it into:
+  - `.cursor/memory/legacy/<source-name>/`
+- **Do not overwrite** the Mnemo structure unless explicitly required. Prefer merge + preserve.
+- Keep the always-read layer token-safe:
+  - `.cursor/memory/hot-rules.md` stays ~20 lines (hard invariants only).
+  - `.cursor/memory/memo.md` is “current truth”, not history (move history into journals).
+- Mnemo authority order (highest → lowest):
+  - Lessons > active-context > memo > journal.
+
+## Deliverable
+
+1) Project-customized memory in `.cursor/memory/` (memo + index + regression checklist updated).  
+2) Legacy memory preserved in `.cursor/memory/legacy/...`.  
+3) Lint passes for the memory system.
+EOF
+
+# -------------------------
 # Helper scripts (shell)
 # -------------------------
 
@@ -376,14 +485,18 @@ write_file "$MEM_SCRIPTS_DIR/query-memory.sh" <<'EOF'
 set -eu
 
 QUERY=""
-AREA="all"
+AREA="All"
+FORMAT="Human"
+USE_SQLITE="0"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --query) QUERY="$2"; shift 2;;
     --area) AREA="$2"; shift 2;;
+    --format) FORMAT="$2"; shift 2;;
+    --use-sqlite) USE_SQLITE="1"; shift 1;;
     -h|--help)
-      echo "Usage: sh ./scripts/memory/query-memory.sh --query \"...\" [--area all|hot|active|memo|lessons|journal|digests]"
+      echo "Usage: sh ./scripts/memory/query-memory.sh --query \"...\" [--area All|HotRules|Active|Memo|Lessons|Journal|Digests] [--format Human|AI] [--use-sqlite]"
       exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 2;;
   esac
@@ -396,25 +509,70 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MEM="$ROOT/.cursor/memory"
+LESSONS="$MEM/lessons"
+
+to_lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+
+area_l="$(to_lower "$AREA")"
+format_l="$(to_lower "$FORMAT")"
+
+if [ "$USE_SQLITE" = "1" ]; then
+  if command -v python3 >/dev/null 2>&1 && [ -f "$MEM/memory.sqlite" ] && [ -f "$ROOT/scripts/memory/query-memory-sqlite.py" ]; then
+    python3 "$ROOT/scripts/memory/query-memory-sqlite.py" --repo "$ROOT" --q "$QUERY" --area "$AREA" --format "$FORMAT"
+    exit $?
+  fi
+  echo "SQLite mode unavailable (need python3 + .cursor/memory/memory.sqlite + query-memory-sqlite.py). Falling back to file search." >&2
+fi
 
 targets=""
-case "$AREA" in
-  hot) targets="$MEM/hot-rules.md" ;;
+case "$area_l" in
+  hotrules|hot) targets="$MEM/hot-rules.md" ;;
   active) targets="$MEM/active-context.md" ;;
   memo) targets="$MEM/memo.md" ;;
-  lessons) targets="$MEM/lessons/index.md $MEM/lessons/L-*.md" ;;
-  journal) targets="$MEM/journal-index.md $MEM/journal/*.md" ;;
-  digests) targets="$MEM/digests/*.digest.md" ;;
-  all) targets="$MEM/hot-rules.md $MEM/active-context.md $MEM/memo.md $MEM/lessons/index.md $MEM/digests/*.digest.md $MEM/journal/*.md" ;;
-  *) echo "Unknown --area: $AREA" >&2; exit 2;;
+  lessons) targets="$LESSONS/index.md $LESSONS/L-*.md" ;;
+  journal) targets="$MEM/journal-index.md" ;;
+  digests) targets="$MEM/digests/"'*.digest.md' ;;
+  all) targets="$MEM/hot-rules.md $MEM/active-context.md $MEM/memo.md $LESSONS/index.md $MEM/journal-index.md $MEM/digests/"'*.digest.md' ;;
+  *) echo "Unknown --area: $AREA" >&2; exit 2 ;;
 esac
 
-echo "Searching: $QUERY"
+tmp="${TMPDIR:-/tmp}/mnemo-query.$$"
+rm -f "$tmp"
+
 for t in $targets; do
   # shellcheck disable=SC2086
   [ -e $t ] || continue
-  grep -nH "$QUERY" $t 2>/dev/null || true
+  # shellcheck disable=SC2086
+  grep -nH "$QUERY" $t 2>/dev/null >>"$tmp" || true
 done
+
+match_count=0
+if [ -f "$tmp" ]; then
+  match_count="$(wc -l < "$tmp" | awk '{$1=$1;print}')"
+fi
+
+if [ "$format_l" = "ai" ]; then
+  if [ "$match_count" -eq 0 ]; then
+    echo "No matches found for: $QUERY"
+  else
+    echo "Files to read:"
+    cut -d: -f1 "$tmp" | sort -u | while IFS= read -r f; do
+      rel="${f#$ROOT/}"
+      echo "  @$rel"
+    done
+  fi
+else
+  echo "Searching: $QUERY"
+  echo "Area: $AREA"
+  echo ""
+  if [ "$match_count" -eq 0 ]; then
+    echo "No matches found."
+  else
+    cat "$tmp"
+  fi
+fi
+
+rm -f "$tmp"
 EOF
 
 write_file "$MEM_SCRIPTS_DIR/clear-active.sh" <<'EOF'
@@ -480,17 +638,37 @@ fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MEM="$ROOT/.cursor/memory"
 JOURNAL_DIR="$MEM/journal"
+TAG_VOCAB="$MEM/tag-vocabulary.md"
 MONTH="$(echo "$DATE" | cut -c1-7)"
 JOURNAL="$JOURNAL_DIR/$MONTH.md"
 PROJECT_NAME="$(basename "$ROOT")"
 
 mkdir -p "$JOURNAL_DIR"
 
+canon_tag() {
+  want_l="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  [ -f "$TAG_VOCAB" ] || { echo "$1"; return 0; }
+  awk -v w="$want_l" '
+    BEGIN { IGNORECASE=1 }
+    /^\- \[[^]]+\]/ {
+      t=$0
+      sub(/^\- \[/,"",t); sub(/\].*$/,"",t)
+      if (tolower(t)==w) { print t; exit }
+    }
+  ' "$TAG_VOCAB" 2>/dev/null || true
+}
+
 tag_string=""
 oldIFS="$IFS"; IFS=','; set -- $TAGS; IFS="$oldIFS"
 for t in "$@"; do
   tt="$(echo "$t" | awk '{$1=$1;print}')"
-  [ -n "$tt" ] && tag_string="${tag_string}[$tt]"
+  [ -z "$tt" ] && continue
+  canon="$(canon_tag "$tt")"
+  if [ -z "$canon" ]; then
+    echo "Unknown tag '$tt'. Add it to tag-vocabulary.md or fix the tag." >&2
+    exit 1
+  fi
+  tag_string="${tag_string}[$canon]"
 done
 
 entry="- $tag_string $TITLE"
@@ -580,6 +758,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 LESSONS="$ROOT/.cursor/memory/lessons"
+TAG_VOCAB="$ROOT/.cursor/memory/tag-vocabulary.md"
 mkdir -p "$LESSONS"
 
 max=0
@@ -598,7 +777,41 @@ kebab="$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; 
 file="$LESSONS/${ID}-${kebab}.md"
 
 today="$(date +%Y-%m-%d)"
-tags_list="$(echo "$TAGS" | sed 's/, */, /g')"
+
+canon_tag() {
+  want_l="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  [ -f "$TAG_VOCAB" ] || { echo "$1"; return 0; }
+  awk -v w="$want_l" '
+    BEGIN { IGNORECASE=1 }
+    /^\- \[[^]]+\]/ {
+      t=$0
+      sub(/^\- \[/,"",t); sub(/\].*$/,"",t)
+      if (tolower(t)==w) { print t; exit }
+    }
+  ' "$TAG_VOCAB" 2>/dev/null || true
+}
+
+tags_out=""
+oldIFS="$IFS"; IFS=','; set -- $TAGS; IFS="$oldIFS"
+for t in "$@"; do
+  tt="$(echo "$t" | awk '{$1=$1;print}')"
+  [ -z "$tt" ] && continue
+  canon="$(canon_tag "$tt")"
+  if [ -z "$canon" ]; then
+    echo "Unknown tag '$tt'. Add it to tag-vocabulary.md or fix the tag." >&2
+    exit 1
+  fi
+  if echo ",$tags_out," | grep -qi ",$canon,"; then
+    continue
+  fi
+  if [ -z "$tags_out" ]; then tags_out="$canon"; else tags_out="$tags_out, $canon"; fi
+done
+
+tags_list="$tags_out"
+if [ -z "$tags_list" ]; then
+  echo "No valid tags provided." >&2
+  exit 1
+fi
 
 cat > "$file" <<EOF2
 ---
@@ -651,7 +864,73 @@ mkdir -p "$LESSONS" "$JOURNAL" "$DIGESTS"
 
 gen="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-out="$LESSONS/index.md"
+json_escape() {
+  # prints JSON-safe string (no surrounding quotes)
+  printf "%s" "$1" | sed -e 's/\\/\\\\/g' -e 's/\"/\\"/g' -e ':a;N;$!ba;s/\r//g;s/\n/\\n/g'
+}
+
+tmp_lessons="${TMPDIR:-/tmp}/mnemo-lessons.$$"
+sorted_lessons="${TMPDIR:-/tmp}/mnemo-lessons.sorted.$$"
+tmp_entries="${TMPDIR:-/tmp}/mnemo-journal-entries.$$"
+sorted_entries="${TMPDIR:-/tmp}/mnemo-journal-entries.sorted.$$"
+rm -f "$tmp_lessons" "$sorted_lessons" "$tmp_entries" "$sorted_entries"
+
+# ---------------------------------
+# Lessons -> index.md + lessons-index.json
+# ---------------------------------
+
+# num\tid\ttitle\tstatus\tintroduced\ttags_raw\tapplies_csv\trule\tfile
+for f in "$LESSONS"/L-*.md; do
+  [ -e "$f" ] || continue
+  bn="$(basename "$f")"
+  awk -v file="$bn" '
+    function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
+    BEGIN{ in=0; cur=""; id=""; title=""; status=""; introduced=""; tags=""; rule=""; applies="" }
+    NR==1 && $0=="---"{in=1; next}
+    in==1 && $0=="---"{in=0; next}
+    in==1{
+      if ($0 ~ /^[ \t]*#/ || $0 ~ /^[ \t]*$/) next
+      if ($0 ~ /^[A-Za-z0-9_]+:[ \t]*$/) {
+        key=$1; sub(/:$/,"",key); cur=tolower(key); next
+      }
+      if ($0 ~ /^[ \t]*-[ \t]+/ && cur=="applies_to") {
+        sub(/^[ \t]*-[ \t]+/,"",$0); v=trim($0)
+        applies = applies (applies==""? v : "," v)
+        next
+      }
+      if ($0 ~ /^[A-Za-z0-9_]+:[ \t]*/) {
+        key=$1; sub(/:$/,"",key); k=tolower(key)
+        $1=""; v=trim($0)
+        if ((v ~ /^".*"$/) || (v ~ /^\047.*\047$/)) { v=substr(v,2,length(v)-2) }
+        if (k=="id") id=v
+        else if (k=="title") title=v
+        else if (k=="status") status=v
+        else if (k=="introduced") introduced=v
+        else if (k=="rule") rule=v
+        else if (k=="tags") tags=v
+        cur=""
+        next
+      }
+    }
+    END{
+      if (id=="") exit
+      num=0
+      if (id ~ /^L-[0-9]+$/) { idn=id; sub(/^L-/,"",idn); num=idn+0 }
+      if (status=="") status="Active"
+      if (title=="") title=file
+      if (rule=="") rule=title
+      print num "\t" id "\t" title "\t" status "\t" introduced "\t" tags "\t" applies "\t" rule "\t" file
+    }
+  ' "$f" >>"$tmp_lessons" 2>/dev/null || true
+done
+
+if [ -f "$tmp_lessons" ]; then
+  sort -n -k1,1 "$tmp_lessons" >"$sorted_lessons" || true
+else
+  : >"$sorted_lessons"
+fi
+
+out_md="$LESSONS/index.md"
 {
   echo "# Lessons Index (generated)"
   echo ""
@@ -659,34 +938,131 @@ out="$LESSONS/index.md"
   echo ""
   echo "Format: ID | [Tags] | AppliesTo | Rule | File"
   echo ""
-} > "$out"
+} >"$out_md"
 
-count=0
-for f in "$LESSONS"/L-*.md; do
-  [ -e "$f" ] || continue
-  id="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="id:"{print $2; exit}' "$f" 2>/dev/null || true)"
+lesson_count=0
+while IFS="$(printf '\t')" read -r num id title status introduced tags applies rule file; do
   [ -z "$id" ] && continue
-  title="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="title:"{$1=""; sub(/^ /,""); print; exit}' "$f" 2>/dev/null || true)"
-  rule="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="rule:"{$1=""; sub(/^ /,""); print; exit}' "$f" 2>/dev/null || true)"
-  tags="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="tags:"{$1=""; sub(/^ /,""); print; exit}' "$f" 2>/dev/null || true)"
-  applies="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $0=="applies_to:"{getline; sub(/^ *- */,""); print; exit}' "$f" 2>/dev/null || true)"
-  [ -z "$applies" ] && applies="(any)"
-  [ -z "$tags" ] && tags="[]"
-  bn="$(basename "$f")"
-  echo "$id | $tags | $applies | ${rule:-$title} | \`$bn\`" >> "$out"
-  count=$((count + 1))
-done
+  lesson_count=$((lesson_count + 1))
+  tagText="$(printf "%s" "$tags" | sed -n 's/^[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | awk -F, '{for(i=1;i<=NF;i++){if($i!=""){printf "[%s]",$i}}}')"
+  appliesText="(any)"
+  if [ -n "$applies" ]; then appliesText="$(printf "%s" "$applies" | sed 's/,/, /g')"; fi
+  printf "%s | %s | %s | %s | `%s`\n" "$id" "$tagText" "$appliesText" "$rule" "$file" >>"$out_md"
+done <"$sorted_lessons"
 
-if [ "$count" -eq 0 ]; then
-  echo "(No lessons yet.)" >> "$out"
+if [ "$lesson_count" -eq 0 ]; then
+  echo "(No lessons yet.)" >>"$out_md"
 fi
+
+out_json="$MEM/lessons-index.json"
+{
+  echo "["
+  first=1
+  while IFS="$(printf '\t')" read -r num id title status introduced tags applies rule file; do
+    [ -z "$id" ] && continue
+    tags_inner="$(printf "%s" "$tags" | sed -n 's/^[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' | sed 's/[[:space:]]*,[[:space:]]*/,/g')"
+    tags_json=""
+    oldIFS="$IFS"; IFS=','; set -- $tags_inner; IFS="$oldIFS"
+    for t in "$@"; do
+      tt="$(printf "%s" "$t" | awk '{$1=$1;print}')"
+      [ -z "$tt" ] && continue
+      [ -n "$tags_json" ] && tags_json="$tags_json,"
+      tags_json="$tags_json\"$(json_escape "$tt")\""
+    done
+    applies_json=""
+    if [ -n "$applies" ]; then
+      oldIFS="$IFS"; IFS=','; set -- $applies; IFS="$oldIFS"
+      for a in "$@"; do
+        aa="$(printf "%s" "$a" | awk '{$1=$1;print}')"
+        [ -z "$aa" ] && continue
+        [ -n "$applies_json" ] && applies_json="$applies_json,"
+        applies_json="$applies_json\"$(json_escape "$aa")\""
+      done
+    fi
+    if [ "$first" -eq 1 ]; then first=0; else echo ","; fi
+    printf "  {\"Id\":\"%s\",\"Num\":%s,\"Title\":\"%s\",\"Status\":\"%s\",\"Introduced\":\"%s\",\"Tags\":[%s],\"AppliesTo\":[%s],\"Rule\":\"%s\",\"File\":\"%s\"}" \
+      "$(json_escape "$id")" \
+      "${num:-0}" \
+      "$(json_escape "$title")" \
+      "$(json_escape "$status")" \
+      "$(json_escape "$introduced")" \
+      "$tags_json" \
+      "$applies_json" \
+      "$(json_escape "$rule")" \
+      "$(json_escape "$file")"
+  done <"$sorted_lessons"
+  echo ""
+  echo "]"
+} >"$out_json"
+
+# ---------------------------------
+# Journal -> journal-index.md + journal-index.json + digests
+# ---------------------------------
 
 for jf in "$JOURNAL"/*.md; do
   [ -e "$jf" ] || continue
   base="$(basename "$jf")"
+  [ "$base" = "README.md" ] && continue
   case "$base" in
-    README.md) continue ;;
+    ????-??.md) ;;
+    *) continue ;;
   esac
+
+  # monthfile\tdate\ttags_csv\ttitle\tfiles_csv
+  awk -v mf="$base" '
+    function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
+    function addfile(v){
+      if (v=="") return
+      if (v ~ /[\/\\]/ || v ~ /\.(cs|md|mdx|yml|yaml|csproj|ps1|sh|ts|tsx|json|py)$/) {
+        if (files=="" || (","files"," !~ ","v",")) files = files (files==""? v : "," v)
+      }
+    }
+    function flush(){
+      if (inEntry==1 && date!="") {
+        print mf "\t" date "\t" tags "\t" title "\t" files
+      }
+    }
+    BEGIN{ date=""; inEntry=0; tags=""; title=""; files="" }
+    /^##[ \t]+[0-9]{4}-[0-9]{2}-[0-9]{2}/{
+      flush()
+      inEntry=0
+      tags=""; title=""; files=""
+      date=$2
+      next
+    }
+    /^-[ \t]+(\[[^]]+\])+/{
+      flush()
+      inEntry=1
+      files=""; tags=""; title=""
+      line=$0
+      while (match(line, /\[[^]]+\]/)) {
+        t=substr(line, RSTART+1, RLENGTH-2)
+        tags = tags (tags==""? t : "," t)
+        line = substr(line, RSTART+RLENGTH)
+      }
+      sub(/^[ \t]*-+[ \t]*/,"",$0)
+      tline=$0
+      gsub(/\[[^]]+\]/,"",tline)
+      title=trim(tline)
+      # collect backticks on same line
+      line2=$0
+      while (match(line2, /`[^`]+`/)) {
+        v=substr(line2, RSTART+1, RLENGTH-2); addfile(v)
+        line2=substr(line2, RSTART+RLENGTH)
+      }
+      next
+    }
+    inEntry==1{
+      line=$0
+      while (match(line, /`[^`]+`/)) {
+        v=substr(line, RSTART+1, RLENGTH-2); addfile(v)
+        line=substr(line, RSTART+RLENGTH)
+      }
+      next
+    }
+    END{ flush() }
+  ' "$jf" >>"$tmp_entries" 2>/dev/null || true
+
   month="${base%.md}"
   digest="$DIGESTS/$month.digest.md"
   {
@@ -696,18 +1072,122 @@ for jf in "$JOURNAL"/*.md; do
     echo ""
     echo "Token-cheap summary. See \`.cursor/memory/journal/$base\` for details."
     echo ""
-  } > "$digest"
+  } >"$digest"
 
   awk '
-    BEGIN { d="" }
-    /^## [0-9]{4}-[0-9]{2}-[0-9]{2}$/ { d=$2; print "## " d "\n"; next }
-    /^- / {
-      if (d!="") print $0
+    function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
+    /^##[ \t]+[0-9]{4}-[0-9]{2}-[0-9]{2}/{
+      d=$2
+      print "## " d "\n"
       next
     }
-  ' "$jf" >> "$digest"
+    /^-[ \t]+(\[[^]]+\])+/{
+      sub(/^[ \t]*-+[ \t]*/,"",$0)
+      line=$0
+      tags=""
+      while (match(line, /\[[^]]+\]/)) {
+        tags=tags substr(line, RSTART, RLENGTH)
+        line=substr(line, RSTART+RLENGTH)
+      }
+      title=$0
+      gsub(/\[[^]]+\]/,"",title)
+      title=trim(title)
+      print "- " tags " " title
+      next
+    }
+  ' "$jf" >>"$digest"
 done
 
+if [ -f "$tmp_entries" ]; then
+  sort -k2,2 -k4,4 "$tmp_entries" >"$sorted_entries" || true
+else
+  : >"$sorted_entries"
+fi
+
+ji="$MEM/journal-index.md"
+{
+  echo "# Journal Index (generated)"
+  echo ""
+  echo "Generated: $gen"
+  echo ""
+  echo "Format: YYYY-MM-DD | [Tags] | Title | Files"
+  echo ""
+} >"$ji"
+
+while IFS="$(printf '\t')" read -r mf date tags title files; do
+  [ -z "$date" ] && continue
+  tagText=""
+  oldIFS="$IFS"; IFS=','; set -- $tags; IFS="$oldIFS"
+  for t in "$@"; do
+    tt="$(printf "%s" "$t" | awk '{$1=$1;print}')"
+    [ -n "$tt" ] && tagText="${tagText}[$tt]"
+  done
+  fileText="-"
+  [ -n "$files" ] && fileText="$(printf "%s" "$files" | sed 's/,/, /g')"
+  printf "%s | %s | %s | %s\n" "$date" "$tagText" "$title" "$fileText" >>"$ji"
+done <"$sorted_entries"
+
+out_jjson="$MEM/journal-index.json"
+{
+  echo "["
+  first=1
+  while IFS="$(printf '\t')" read -r mf date tags title files; do
+    [ -z "$date" ] && continue
+    tags_json=""
+    oldIFS="$IFS"; IFS=','; set -- $tags; IFS="$oldIFS"
+    for t in "$@"; do
+      tt="$(printf "%s" "$t" | awk '{$1=$1;print}')"
+      [ -z "$tt" ] && continue
+      [ -n "$tags_json" ] && tags_json="$tags_json,"
+      tags_json="$tags_json\"$(json_escape "$tt")\""
+    done
+    files_json=""
+    if [ -n "$files" ]; then
+      oldIFS="$IFS"; IFS=','; set -- $files; IFS="$oldIFS"
+      for f in "$@"; do
+        ff="$(printf "%s" "$f" | awk '{$1=$1;print}')"
+        [ -z "$ff" ] && continue
+        [ -n "$files_json" ] && files_json="$files_json,"
+        files_json="$files_json\"$(json_escape "$ff")\""
+      done
+    fi
+    if [ "$first" -eq 1 ]; then first=0; else echo ","; fi
+    printf "  {\"MonthFile\":\"%s\",\"Date\":\"%s\",\"Tags\":[%s],\"Title\":\"%s\",\"Files\":[%s]}" \
+      "$(json_escape "$mf")" \
+      "$(json_escape "$date")" \
+      "$tags_json" \
+      "$(json_escape "$title")" \
+      "$files_json"
+  done <"$sorted_entries"
+  echo ""
+  echo "]"
+} >"$out_jjson"
+
+# Optional: build SQLite index if python3 exists
+if command -v python3 >/dev/null 2>&1 && [ -f "$ROOT/scripts/memory/build-memory-sqlite.py" ]; then
+  echo "Python3 detected; building SQLite FTS index..."
+  python3 "$ROOT/scripts/memory/build-memory-sqlite.py" --repo "$ROOT" || true
+else
+  echo "Python3 not found; skipping SQLite build."
+fi
+
+# Token usage monitoring (informational)
+totalChars=0
+for hf in "$MEM/hot-rules.md" "$MEM/active-context.md" "$MEM/memo.md"; do
+  [ -f "$hf" ] || continue
+  c="$(wc -c < "$hf" | awk '{$1=$1;print}')"
+  totalChars=$((totalChars + c))
+done
+estimatedTokens=$((totalChars / 4))
+echo ""
+if [ "$totalChars" -gt 8000 ]; then
+  echo "WARNING: Always-read layer is $totalChars chars (~$estimatedTokens tokens)"
+else
+  echo "Always-read layer: $totalChars chars (~$estimatedTokens tokens) - Healthy"
+fi
+
+rm -f "$tmp_lessons" "$sorted_lessons" "$tmp_entries" "$sorted_entries" 2>/dev/null || true
+echo ""
 echo "Rebuild complete."
 EOF
 
@@ -717,24 +1197,151 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MEM="$ROOT/.cursor/memory"
+LESSONS="$MEM/lessons"
+JOURNAL="$MEM/journal"
+TAG_VOCAB="$MEM/tag-vocabulary.md"
 
 hot="$MEM/hot-rules.md"
 active="$MEM/active-context.md"
 memo="$MEM/memo.md"
 
-chars=0
+errors=0
+warnings=0
+
+err() { echo "  ERROR: $1" >&2; errors=$((errors + 1)); }
+warn() { echo "  WARN: $1" >&2; warnings=$((warnings + 1)); }
+
+echo "Linting Mnemo Memory System..."
+echo ""
+
+# Allowed tags
+allowed_tmp="${TMPDIR:-/tmp}/mnemo-allowed-tags.$$"
+rm -f "$allowed_tmp"
+if [ -f "$TAG_VOCAB" ]; then
+  awk '/^\- \[[^]]+\]/{t=$0; sub(/^\- \[/,"",t); sub(/\].*$/,"",t); print t}' "$TAG_VOCAB" >"$allowed_tmp"
+else
+  warn "Missing tag vocabulary: $TAG_VOCAB"
+  : >"$allowed_tmp"
+fi
+
+echo "Checking lessons..."
+ids_tmp="${TMPDIR:-/tmp}/mnemo-lesson-ids.$$"
+rm -f "$ids_tmp"
+
+lesson_count=0
+for lf in "$LESSONS"/L-*.md; do
+  [ -e "$lf" ] || continue
+  lesson_count=$((lesson_count + 1))
+  bn="$(basename "$lf")"
+
+  first="$(awk 'NR==1{print $0; exit}' "$lf" 2>/dev/null || true)"
+  if [ "$first" != "---" ]; then
+    err "[$bn] Missing YAML frontmatter"
+    continue
+  fi
+
+  id="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="id:"{print $2; exit}' "$lf" 2>/dev/null || true)"
+  title="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="title:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  status="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="status:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  tags="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="tags:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  introduced="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="introduced:"{print $2; exit}' "$lf" 2>/dev/null || true)"
+  rule="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="rule:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+
+  [ -z "$id" ] && err "[$bn] Missing required field: id"
+  [ -z "$title" ] && err "[$bn] Missing required field: title"
+  [ -z "$status" ] && err "[$bn] Missing required field: status"
+  [ -z "$tags" ] && err "[$bn] Missing required field: tags"
+  [ -z "$introduced" ] && err "[$bn] Missing required field: introduced"
+  [ -z "$rule" ] && err "[$bn] Missing required field: rule"
+
+  if [ -n "$id" ]; then
+    echo "$id	$bn" >>"$ids_tmp"
+    echo "$id" | grep -Eq '^L-[0-9]{3}$' || warn "[$bn] ID '$id' doesn't match format L-XXX (3 digits)"
+    pref="$(echo "$id" | tr '[:upper:]' '[:lower:]')"
+    echo "$bn" | tr '[:upper:]' '[:lower:]' | grep -q "^$pref" || warn "[$bn] Filename doesn't start with ID '$id'"
+  fi
+
+  if [ -s "$allowed_tmp" ] && [ -n "$tags" ]; then
+    inner="$(printf "%s" "$tags" | sed -n 's/^[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' | sed 's/[[:space:]]*,[[:space:]]*/,/g')"
+    oldIFS="$IFS"; IFS=','; set -- $inner; IFS="$oldIFS"
+    for t in "$@"; do
+      tt="$(printf "%s" "$t" | awk '{$1=$1;print}')"
+      [ -z "$tt" ] && continue
+      if ! grep -Fxq "$tt" "$allowed_tmp"; then
+        err "[$bn] Unknown tag [$tt]. Add it to tag-vocabulary.md or fix the lesson."
+      fi
+    done
+  fi
+done
+
+echo "  Found $lesson_count lesson files"
+
+# Duplicate IDs
+if [ -f "$ids_tmp" ]; then
+  dups="$(cut -f1 "$ids_tmp" | sort | uniq -d || true)"
+  if [ -n "$dups" ]; then
+    echo "$dups" | while IFS= read -r did; do
+      [ -z "$did" ] && continue
+      files="$(awk -v i="$did" -F'\t' '$1==i{print $2}' "$ids_tmp" | paste -sd', ' -)"
+      err "Duplicate lesson ID $did (files: $files)"
+    done
+  fi
+fi
+
+echo ""
+echo "Checking journals..."
+journal_count=0
+for jf in "$JOURNAL"/????-??.md; do
+  [ -e "$jf" ] || continue
+  journal_count=$((journal_count + 1))
+  bn="$(basename "$jf")"
+  dups="$(awk '/^##[ \t]+[0-9]{4}-[0-9]{2}-[0-9]{2}/{print $2}' "$jf" | sort | uniq -d || true)"
+  if [ -n "$dups" ]; then
+    echo "$dups" | while IFS= read -r d; do
+      [ -z "$d" ] && continue
+      c="$(awk -v dd="$d" '/^##[ \t]+[0-9]{4}-[0-9]{2}-[0-9]{2}/{if($2==dd) n++} END{print n+0}' "$jf")"
+      err "[$bn] Duplicate date heading $d x$c. Merge into one section."
+    done
+  fi
+done
+echo "  Found $journal_count journal files"
+
+echo ""
+echo "Checking token budget..."
+total=0
 for f in "$hot" "$active" "$memo"; do
   [ -f "$f" ] || continue
   c="$(wc -c < "$f" | awk '{$1=$1;print}')"
-  chars=$((chars + c))
+  total=$((total + c))
+  if [ "$c" -gt 3000 ]; then
+    warn "[$(basename "$f")] File is $c chars (~$((c/4)) tokens) - consider trimming"
+  fi
 done
+echo "  Always-read layer: $total chars (~$((total/4)) tokens)"
+if [ "$total" -gt 8000 ]; then
+  err "[Token Budget] Always-read layer exceeds 8000 chars (~2000 tokens)"
+elif [ "$total" -gt 6000 ]; then
+  warn "[Token Budget] Always-read layer is $total chars - approaching limit"
+fi
 
-tokens=$((chars / 4))
-echo "Always-read layer: ${chars} chars (~${tokens} tokens)"
-if [ "$chars" -gt 8000 ]; then
-  echo "ERROR: Always-read layer exceeds 8000 chars (~2000 tokens)" >&2
+echo ""
+echo "Checking for orphans..."
+[ -f "$LESSONS/index.md" ] || warn "[lessons/index.md] Missing - run rebuild-memory-index.sh"
+[ -f "$MEM/journal-index.md" ] || warn "[journal-index.md] Missing - run rebuild-memory-index.sh"
+
+echo ""
+echo "====== LINT RESULTS ======"
+echo "Errors: $errors"
+echo "Warnings: $warnings"
+
+rm -f "$allowed_tmp" "$ids_tmp" 2>/dev/null || true
+
+if [ "$errors" -gt 0 ]; then
+  echo ""
+  echo "Lint FAILED with $errors error(s)" >&2
   exit 1
 fi
+echo ""
 echo "Lint passed"
 EOF
 
@@ -754,9 +1361,221 @@ sh "./scripts/memory/rebuild-memory-index.sh"
 sh "./scripts/memory/lint-memory.sh"
 
 git add .cursor/memory/lessons/index.md 2>/dev/null || true
+git add .cursor/memory/lessons-index.json 2>/dev/null || true
+git add .cursor/memory/journal-index.md 2>/dev/null || true
+git add .cursor/memory/journal-index.json 2>/dev/null || true
 git add .cursor/memory/digests/*.digest.md 2>/dev/null || true
 exit 0
 EOF
+
+# Also write .git/hooks/pre-commit for immediate effect (best effort)
+if [ -d "$REPO_ROOT/.git/hooks" ]; then
+  legacy="$REPO_ROOT/.git/hooks/pre-commit"
+  if [ -f "$legacy" ] && [ "$FORCE" != "1" ]; then
+    if grep -q "Mnemo" "$legacy" 2>/dev/null; then
+      echo "SKIP (exists): $legacy"
+    else
+      printf "\n\n" >>"$legacy" || true
+      cat "$GITHOOKS_DIR/pre-commit" >>"$legacy" || true
+      echo "Updated: $legacy"
+    fi
+  else
+    cp "$GITHOOKS_DIR/pre-commit" "$legacy" 2>/dev/null || true
+  fi
+fi
+
+# Optional: write python helpers (for SQLite build/query). Used only if python3 exists.
+write_file "$MEM_SCRIPTS_DIR/build-memory-sqlite.py" <<'EOF'
+#!/usr/bin/env python3
+"""Build SQLite FTS5 index from memory JSON indexes."""
+import argparse
+import json
+import sqlite3
+from pathlib import Path
+
+def read_text(p: Path) -> str:
+    return p.read_text(encoding="utf-8-sig", errors="replace")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", required=True)
+    args = ap.parse_args()
+
+    repo = Path(args.repo)
+    mem = repo / ".cursor" / "memory"
+    out_db = mem / "memory.sqlite"
+
+    lessons_index = mem / "lessons-index.json"
+    journal_index = mem / "journal-index.json"
+
+    lessons = []
+    if lessons_index.exists():
+        t = read_text(lessons_index).strip()
+        if t:
+            lessons = json.loads(t)
+            if not isinstance(lessons, list):
+                lessons = [lessons] if lessons else []
+
+    journal = []
+    if journal_index.exists():
+        t = read_text(journal_index).strip()
+        if t:
+            journal = json.loads(t)
+            if not isinstance(journal, list):
+                journal = [journal] if journal else []
+
+    if out_db.exists():
+        out_db.unlink()
+
+    con = sqlite3.connect(str(out_db))
+    cur = con.cursor()
+    cur.execute("CREATE VIRTUAL TABLE memory_fts USING fts5(kind, id, date, tags, title, content, path);")
+
+    for kind, fid, path in [
+        ("hot_rules", "HOT", mem / "hot-rules.md"),
+        ("active", "ACTIVE", mem / "active-context.md"),
+        ("memo", "MEMO", mem / "memo.md"),
+    ]:
+        if path.exists():
+            cur.execute(
+                "INSERT INTO memory_fts(kind,id,date,tags,title,content,path) VALUES (?,?,?,?,?,?,?)",
+                (kind, fid, None, "", path.name, read_text(path), str(path)),
+            )
+
+    lessons_dir = mem / "lessons"
+    for l in lessons:
+        lid = l.get("Id")
+        title = l.get("Title", "")
+        tags = " ".join(l.get("Tags") or [])
+        date = l.get("Introduced")
+        file = l.get("File", "")
+        path = lessons_dir / file if file else (mem / "lessons.md")
+        content = read_text(path) if path.exists() else f"{title}\nRule: {l.get('Rule','')}"
+        cur.execute(
+            "INSERT INTO memory_fts(kind,id,date,tags,title,content,path) VALUES (?,?,?,?,?,?,?)",
+            ("lesson", lid, date, tags, title, content, str(path)),
+        )
+
+    for e in journal:
+        tags = " ".join(e.get("Tags") or [])
+        files = e.get("Files") or []
+        if isinstance(files, dict):
+            files = []
+        content = f"{e.get('Title','')}\nFiles: {', '.join(files)}"
+        path = mem / "journal" / (e.get("MonthFile") or "")
+        cur.execute(
+            "INSERT INTO memory_fts(kind,id,date,tags,title,content,path) VALUES (?,?,?,?,?,?,?)",
+            ("journal", None, e.get("Date"), tags, e.get("Title"), content, str(path)),
+        )
+
+    digests = mem / "digests"
+    if digests.exists():
+        for p in digests.glob("*.digest.md"):
+            cur.execute(
+                "INSERT INTO memory_fts(kind,id,date,tags,title,content,path) VALUES (?,?,?,?,?,?,?)",
+                ("digest", None, None, "", p.name, read_text(p), str(p)),
+            )
+
+    con.commit()
+    con.close()
+    print(f"Built: {out_db}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+EOF
+
+write_file "$MEM_SCRIPTS_DIR/query-memory-sqlite.py" <<'EOF'
+#!/usr/bin/env python3
+"""Query memory SQLite FTS index."""
+import argparse
+import sqlite3
+from pathlib import Path
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", required=True)
+    ap.add_argument("--q", required=True)
+    ap.add_argument("--area", default="All")
+    ap.add_argument("--format", default="Human")
+    args = ap.parse_args()
+
+    repo = Path(args.repo)
+    db = repo / ".cursor" / "memory" / "memory.sqlite"
+    if not db.exists():
+        print("SQLite DB not found. Run rebuild-memory-index.sh first.")
+        return 2
+
+    area = args.area.lower()
+    kind_filter = None
+    if area == "hotrules": kind_filter = "hot_rules"
+    elif area == "active": kind_filter = "active"
+    elif area == "memo": kind_filter = "memo"
+    elif area == "lessons": kind_filter = "lesson"
+    elif area == "journal": kind_filter = "journal"
+    elif area == "digests": kind_filter = "digest"
+
+    con = sqlite3.connect(str(db))
+    cur = con.cursor()
+
+    sql = "SELECT kind, id, date, title, path, snippet(memory_fts, 5, '[', ']', '...', 12) FROM memory_fts WHERE memory_fts MATCH ?"
+    params = [args.q]
+    if kind_filter:
+        sql += " AND kind = ?"
+        params.append(kind_filter)
+    sql += " LIMIT 20"
+
+    rows = cur.execute(sql, params).fetchall()
+    con.close()
+
+    if args.format.lower() == "ai":
+        paths = []
+        for r in rows:
+            p = r[4]
+            try:
+                rel = str(Path(p).resolve().relative_to(repo.resolve()))
+            except Exception:
+                rel = p
+            paths.append(rel.replace("\\", "/"))
+        uniq = []
+        for p in paths:
+            if p not in uniq:
+                uniq.append(p)
+        if not uniq:
+            print(f"No matches for: {args.q}")
+        else:
+            print("Files to read:")
+            for p in uniq:
+                print(f"  @{p}")
+        return 0
+
+    if not rows:
+        print(f"No matches for: {args.q}")
+        return 0
+
+    for kind, idv, date, title, path, snip in rows:
+        print(f"==> {kind} | {idv or '-'} | {date or '-'} | {title}")
+        print(f"    {path}")
+        print(f"    {snip}")
+        print("")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+EOF
+
+# Update .gitignore to ignore memory.sqlite (best-effort)
+gi="$REPO_ROOT/.gitignore"
+sqliteLine=".cursor/memory/memory.sqlite"
+if [ -f "$gi" ]; then
+  if ! grep -Fq "$sqliteLine" "$gi"; then
+    printf "\n# Cursor Memory System (generated)\n%s\n" "$sqliteLine" >>"$gi"
+    echo "Updated .gitignore: $sqliteLine"
+  fi
+else
+  printf "# Cursor Memory System (generated)\n%s\n" "$sqliteLine" >"$gi"
+  echo "Created .gitignore with: $sqliteLine"
+fi
 
 chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" 2>/dev/null || true
 
