@@ -6,15 +6,20 @@
 #   sh ./memory_mac.sh
 #   sh ./memory_mac.sh --project-name "MyProject"
 #   sh ./memory_mac.sh --force
+#   sh ./memory_mac.sh --enable-vector
+#   sh ./memory_mac.sh --enable-vector --vector-provider gemini
 #
 # This creates:
 #   .cursor/memory/*, .cursor/rules/*, scripts/memory/*, .githooks/pre-commit
+#   (and optional .githooks/post-commit when --enable-vector is used)
 
 set -eu
 
 REPO_ROOT="$(pwd)"
 PROJECT_NAME=""
 FORCE="0"
+ENABLE_VECTOR="0"
+VECTOR_PROVIDER="openai"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -24,14 +29,23 @@ while [ $# -gt 0 ]; do
       PROJECT_NAME="$2"; shift 2;;
     --force)
       FORCE="1"; shift 1;;
+    --enable-vector)
+      ENABLE_VECTOR="1"; shift 1;;
+    --vector-provider)
+      VECTOR_PROVIDER="$2"; shift 2;;
     -h|--help)
-      echo "Usage: sh ./memory_mac.sh [--repo-root PATH] [--project-name NAME] [--force]"
+      echo "Usage: sh ./memory_mac.sh [--repo-root PATH] [--project-name NAME] [--force] [--enable-vector] [--vector-provider openai|gemini]"
       exit 0;;
     *)
       echo "Unknown arg: $1" >&2
       exit 2;;
   esac
 done
+
+if [ "$VECTOR_PROVIDER" != "openai" ] && [ "$VECTOR_PROVIDER" != "gemini" ]; then
+  echo "Invalid --vector-provider: $VECTOR_PROVIDER (expected openai or gemini)" >&2
+  exit 2
+fi
 
 if [ -z "$PROJECT_NAME" ]; then
   PROJECT_NAME="$(basename "$REPO_ROOT")"
@@ -1564,20 +1578,479 @@ if __name__ == "__main__":
     raise SystemExit(main())
 EOF
 
-# Update .gitignore to ignore memory.sqlite (best-effort)
-gi="$REPO_ROOT/.gitignore"
-sqliteLine=".cursor/memory/memory.sqlite"
-if [ -f "$gi" ]; then
-  if ! grep -Fq "$sqliteLine" "$gi"; then
-    printf "\n# Cursor Memory System (generated)\n%s\n" "$sqliteLine" >>"$gi"
-    echo "Updated .gitignore: $sqliteLine"
+if [ "$ENABLE_VECTOR" = "1" ]; then
+  echo "Vector mode enabled (provider: $VECTOR_PROVIDER)"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "Vector mode requires python3 (3.10+)." >&2
+    exit 1
   fi
-else
-  printf "# Cursor Memory System (generated)\n%s\n" "$sqliteLine" >"$gi"
-  echo "Created .gitignore with: $sqliteLine"
+
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    echo "python3 pip is unavailable in this environment." >&2
+    echo "Install Homebrew Python (brew install python) or use a virtualenv." >&2
+    exit 1
+  fi
+
+  pip_err="${TMPDIR:-/tmp}/mnemo-vector-pip.$$"
+  pkgs="openai sqlite-vec mcp[cli]>=1.2.0,<2.0"
+  if [ "$VECTOR_PROVIDER" = "gemini" ]; then
+    pkgs="$pkgs google-genai"
+  fi
+
+  # shellcheck disable=SC2086
+  if ! python3 -m pip install --quiet $pkgs 2>"$pip_err"; then
+    if grep -Ei "externally managed|externally-managed" "$pip_err" >/dev/null 2>&1; then
+      echo "Python is externally managed (PEP668)." >&2
+      echo "Use Homebrew Python or a venv, then re-run with --enable-vector." >&2
+    fi
+    cat "$pip_err" >&2 || true
+    rm -f "$pip_err"
+    exit 1
+  fi
+  rm -f "$pip_err"
+
+  write_file "$MEM_SCRIPTS_DIR/mnemo_vector.py" <<'EOF'
+#!/usr/bin/env python3
+"""
+Mnemo vector memory engine.
+Optional semantic layer for .cursor/memory with MCP tools.
+"""
+import os
+import re
+import sqlite3
+import hashlib
+from pathlib import Path
+
+import sqlite_vec
+from sqlite_vec import serialize_f32
+from mcp.server.fastmcp import FastMCP
+
+SCHEMA_VERSION = 1
+EMBED_DIM = 1536
+MEM_ROOT = Path(".cursor/memory")
+DB_PATH = MEM_ROOT / "mnemo_vector.sqlite"
+PROVIDER = os.getenv("MNEMO_PROVIDER", "openai").lower()
+
+SKIP_NAMES = {
+    "README.md",
+    "index.md",
+    "lessons-index.json",
+    "journal-index.json",
+    "journal-index.md",
+}
+SKIP_DIRS = {"legacy", "templates"}
+
+mcp = FastMCP("MnemoVector")
+
+
+def get_embedding(text: str) -> list[float]:
+    trimmed = text[:12000] if len(text) > 12000 else text
+    if PROVIDER == "gemini":
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise RuntimeError("GEMINI_API_KEY is not set")
+        from google import genai
+        client = genai.Client(api_key=key)
+        result = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=trimmed,
+            config={"output_dimensionality": EMBED_DIM},
+        )
+        return result.embeddings[0].values
+
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+    from openai import OpenAI
+    client = OpenAI(api_key=key)
+    resp = client.embeddings.create(input=[trimmed], model="text-embedding-3-small")
+    return resp.data[0].embedding
+
+
+def get_db() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(str(DB_PATH), timeout=30)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA busy_timeout=10000")
+    db.enable_load_extension(True)
+    sqlite_vec.load(db)
+    return db
+
+
+def init_db() -> sqlite3.Connection:
+    db = get_db()
+    db.execute("CREATE TABLE IF NOT EXISTS schema_info (key TEXT PRIMARY KEY, value TEXT)")
+    row = db.execute("SELECT value FROM schema_info WHERE key='version'").fetchone()
+    ver = int(row[0]) if row else 0
+
+    if ver < SCHEMA_VERSION:
+        db.execute("DROP TABLE IF EXISTS file_meta")
+        db.execute("DROP TABLE IF EXISTS vec_memory")
+        db.execute(
+            """
+            CREATE TABLE file_meta (
+                path TEXT PRIMARY KEY,
+                hash TEXT NOT NULL,
+                chunk_count INTEGER DEFAULT 0,
+                updated_at REAL DEFAULT (unixepoch('now'))
+            )
+            """
+        )
+        db.execute(
+            f"""
+            CREATE VIRTUAL TABLE vec_memory USING vec0(
+                embedding float[{EMBED_DIM}] distance_metric=cosine,
+                +ref_path TEXT,
+                +content TEXT,
+                +source_file TEXT
+            )
+            """
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO schema_info(key, value) VALUES ('version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+        db.commit()
+    return db
+
+
+def chunk_markdown(content: str, file_path: Path) -> list[tuple[str, str]]:
+    chunks: list[tuple[str, str]] = []
+    path_str = str(file_path).replace("\\", "/")
+
+    if "journal/" in path_str.lower():
+        parts = re.split(r"^(##\s+\d{4}-\d{2}-\d{2})", content, flags=re.MULTILINE)
+        preamble = parts[0].strip()
+        if preamble:
+            chunks.append((preamble, f"@{path_str}"))
+        i = 1
+        while i < len(parts) - 1:
+            heading = parts[i].strip()
+            body = parts[i + 1].strip()
+            date = heading.replace("##", "").strip()
+            chunks.append((f"{heading}\n{body}".strip(), f"@{path_str}# {date}"))
+            i += 2
+        if chunks:
+            return chunks
+
+    if file_path.parent.name == "lessons" and file_path.name.startswith("L-"):
+        text = content.strip()
+        if text:
+            m = re.match(r"(L-\d{3})", file_path.name)
+            ref = f"@{path_str}# {m.group(1)}" if m else f"@{path_str}"
+            chunks.append((text, ref))
+        return chunks
+
+    parts = re.split(r"^(#{1,4}\s+.+)$", content, flags=re.MULTILINE)
+    preamble = parts[0].strip()
+    if preamble:
+        chunks.append((preamble, f"@{path_str}"))
+
+    i = 1
+    while i < len(parts) - 1:
+        heading_line = parts[i].strip()
+        body = parts[i + 1].strip()
+        heading_text = re.sub(r"^#{1,4}\s+", "", heading_line)
+        full = f"{heading_line}\n{body}".strip() if body else heading_line
+        if full.strip():
+            chunks.append((full, f"@{path_str}# {heading_text}"))
+        i += 2
+
+    if not chunks and content.strip():
+        chunks.append((content.strip(), f"@{path_str}"))
+    return chunks
+
+
+@mcp.tool()
+def vector_sync() -> str:
+    db = init_db()
+    files: dict[str, Path] = {}
+    for p in MEM_ROOT.glob("**/*.md"):
+        if p.name in SKIP_NAMES:
+            continue
+        if any(skip in p.parts for skip in SKIP_DIRS):
+            continue
+        files[str(p)] = p
+
+    updated = 0
+    skipped = 0
+    errors = 0
+    known = db.execute("SELECT path FROM file_meta").fetchall()
+    for (stored,) in known:
+        if stored not in files:
+            db.execute("DELETE FROM vec_memory WHERE source_file = ?", (stored,))
+            db.execute("DELETE FROM file_meta WHERE path = ?", (stored,))
+            updated += 1
+
+    for str_path, file_path in files.items():
+        try:
+            content = file_path.read_text(encoding="utf-8-sig")
+        except (UnicodeDecodeError, PermissionError, OSError):
+            errors += 1
+            continue
+        if not content.strip():
+            skipped += 1
+            continue
+
+        f_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        row = db.execute("SELECT hash FROM file_meta WHERE path = ?", (str_path,)).fetchone()
+        if row and row[0] == f_hash:
+            skipped += 1
+            continue
+
+        db.execute("DELETE FROM vec_memory WHERE source_file = ?", (str_path,))
+        chunks = chunk_markdown(content, file_path)
+        embedded = 0
+        chunk_errors = 0
+        for text, ref in chunks:
+            try:
+                emb = get_embedding(text)
+                db.execute(
+                    "INSERT INTO vec_memory(embedding, ref_path, content, source_file) VALUES (?, ?, ?, ?)",
+                    (serialize_f32(emb), ref, text, str_path),
+                )
+                embedded += 1
+            except Exception:
+                chunk_errors += 1
+
+        if chunk_errors == 0:
+            db.execute(
+                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
+                (str_path, f_hash, embedded),
+            )
+        else:
+            db.execute(
+                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
+                (str_path, "DIRTY", embedded),
+            )
+            errors += chunk_errors
+        updated += 1
+
+    db.commit()
+    db.close()
+    msg = f"Synced: {updated} files processed, {skipped} unchanged"
+    if errors:
+        msg += f", {errors} chunk errors (will retry)"
+    return msg
+
+
+@mcp.tool()
+def vector_search(query: str, top_k: int = 5) -> str:
+    db = init_db()
+    emb = get_embedding(query)
+    rows = db.execute(
+        "SELECT ref_path, content, distance FROM vec_memory WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+        (serialize_f32(emb), top_k),
+    ).fetchall()
+    db.close()
+    if not rows:
+        return "No relevant memory found."
+    out = []
+    for ref, content, dist in rows:
+        sim = round(1.0 - dist, 4)
+        preview = " ".join(content[:400].split())
+        out.append(f"[sim={sim:.3f}] {ref}\n{preview}")
+    return "\n\n---\n\n".join(out)
+
+
+@mcp.tool()
+def vector_forget(path_pattern: str = "") -> str:
+    db = init_db()
+    removed = 0
+    if path_pattern:
+        like = f"%{path_pattern}%"
+        r1 = db.execute("DELETE FROM vec_memory WHERE source_file LIKE ?", (like,)).rowcount
+        r2 = db.execute("DELETE FROM file_meta WHERE path LIKE ?", (like,)).rowcount
+        removed = max(r1, r2)
+    else:
+        known = db.execute("SELECT path FROM file_meta").fetchall()
+        for (p,) in known:
+            if not Path(p).exists():
+                db.execute("DELETE FROM vec_memory WHERE source_file = ?", (p,))
+                db.execute("DELETE FROM file_meta WHERE path = ?", (p,))
+                removed += 1
+    db.commit()
+    db.close()
+    return f"Pruned {removed} entries."
+
+
+@mcp.tool()
+def vector_health() -> str:
+    lines = []
+    db = init_db()
+    ver = db.execute("SELECT value FROM schema_info WHERE key='version'").fetchone()
+    lines.append(f"Schema: v{ver[0] if ver else '?'}")
+    files = db.execute("SELECT COUNT(*) FROM file_meta").fetchone()[0]
+    vecs = db.execute("SELECT COUNT(*) FROM vec_memory").fetchone()[0]
+    dirty = db.execute("SELECT COUNT(*) FROM file_meta WHERE hash = 'DIRTY'").fetchone()[0]
+    lines.append(f"Files tracked: {files}")
+    lines.append(f"Vector chunks: {vecs}")
+    if dirty:
+        lines.append(f"Dirty files: {dirty}")
+    lines.append(f"DB integrity: {db.execute('PRAGMA integrity_check').fetchone()[0]}")
+    db.close()
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    mcp.run()
+EOF
+
+  write_file "$RULES_DIR/01-vector-search.mdc" <<'EOF'
+---
+description: Mnemo vector semantic retrieval layer (optional)
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Vector Memory Layer (Optional)
+
+This rule supplements `00-memory-system.mdc` and does not replace governance.
+
+## Use vector tools when:
+- You do not know the exact keyword for prior context.
+- Keyword/FTS search did not find relevant history.
+
+## MCP tools
+- `vector_search` - semantic retrieval with cosine similarity.
+- `vector_sync` - incremental indexing.
+- `vector_forget` - remove stale entries.
+- `vector_health` - DB/API health check.
+
+## Fallback
+If vector search is unavailable, keep using:
+- `scripts/memory/query-memory.sh --query "..."`
+- `scripts/memory/query-memory.sh --query "..." --use-sqlite`
+EOF
+
+  python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+provider = sys.argv[2]
+mcp_path = repo / ".cursor" / "mcp.json"
+engine = str((repo / "scripts" / "memory" / "mnemo_vector.py").resolve())
+
+root = {}
+if mcp_path.exists():
+    try:
+        root = json.loads(mcp_path.read_text(encoding="utf-8"))
+    except Exception:
+        root = {}
+
+servers = root.get("mcpServers") if isinstance(root, dict) else {}
+if not isinstance(servers, dict):
+    servers = {}
+
+env = {"MNEMO_PROVIDER": provider}
+if provider == "gemini":
+    env["GEMINI_API_KEY"] = "${env:GEMINI_API_KEY}"
+else:
+    env["OPENAI_API_KEY"] = "${env:OPENAI_API_KEY}"
+
+servers["MnemoVector"] = {
+    "command": "python3",
+    "args": [engine],
+    "env": env,
+}
+root["mcpServers"] = servers
+mcp_path.write_text(json.dumps(root, indent=2), encoding="utf-8")
+PY
+
+  post_hook="$GITHOOKS_DIR/post-commit"
+  backup_hook="$GITHOOKS_DIR/post-commit.before-mnemo-vector"
+  marker="Mnemo Vector Hook Wrapper"
+  if [ -f "$post_hook" ] && ! grep -Fq "$marker" "$post_hook" 2>/dev/null; then
+    cp "$post_hook" "$backup_hook" 2>/dev/null || true
+  fi
+
+  if [ "$VECTOR_PROVIDER" = "gemini" ]; then
+    api_guard='[ -z "${GEMINI_API_KEY:-}" ] && exit 0'
+  else
+    api_guard='[ -z "${OPENAI_API_KEY:-}" ] && exit 0'
+  fi
+
+  cat >"$post_hook" <<EOF
+#!/bin/sh
+# Mnemo Vector Hook Wrapper
+set -e
+
+ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "\$ROOT" || exit 0
+
+if [ -f ".githooks/post-commit.before-mnemo-vector" ]; then
+  sh ".githooks/post-commit.before-mnemo-vector" || true
 fi
 
-chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" 2>/dev/null || true
+$api_guard
+
+LOCKDIR="\$ROOT/.cursor/memory/.sync.lock"
+if [ -d "\$LOCKDIR" ]; then
+  NOW=\$(date +%s 2>/dev/null || echo 0)
+  MTIME=\$(stat -f %m "\$LOCKDIR" 2>/dev/null || stat -c %Y "\$LOCKDIR" 2>/dev/null || echo 0)
+  AGE=\$((NOW - MTIME))
+  if [ "\$AGE" -gt 600 ] 2>/dev/null; then
+    rmdir "\$LOCKDIR" 2>/dev/null || true
+  fi
+fi
+
+if mkdir "\$LOCKDIR" 2>/dev/null; then
+  trap 'rmdir "\$LOCKDIR" 2>/dev/null || true' EXIT INT TERM
+  python3 -c "import sys; sys.path.insert(0, 'scripts/memory'); from mnemo_vector import vector_sync; print('[MnemoVector]', vector_sync())" 2>&1 | tail -1 || true
+fi
+
+exit 0
+EOF
+  chmod +x "$post_hook" 2>/dev/null || true
+
+  if [ -d "$REPO_ROOT/.git/hooks" ]; then
+    legacy_post="$REPO_ROOT/.git/hooks/post-commit"
+    if [ -f "$legacy_post" ] && [ "$FORCE" != "1" ] && ! grep -Fq "$marker" "$legacy_post" 2>/dev/null; then
+      echo "SKIP (legacy post-commit exists): $legacy_post"
+    else
+      cp "$post_hook" "$legacy_post" 2>/dev/null || true
+    fi
+  fi
+fi
+
+# Update .gitignore with memory artifacts (best-effort)
+gi="$REPO_ROOT/.gitignore"
+ignore_lines=".cursor/memory/memory.sqlite"
+if [ "$ENABLE_VECTOR" = "1" ]; then
+  ignore_lines="$ignore_lines
+.cursor/memory/mnemo_vector.sqlite
+.cursor/memory/mnemo_vector.sqlite-journal
+.cursor/memory/mnemo_vector.sqlite-wal
+.cursor/memory/mnemo_vector.sqlite-shm
+.cursor/memory/.sync.lock"
+fi
+
+if [ ! -f "$gi" ]; then
+  {
+    echo "# Cursor Memory System (generated)"
+    printf "%s\n" "$ignore_lines"
+  } >"$gi"
+  echo "Created .gitignore with memory artifacts"
+else
+  added="0"
+  echo "$ignore_lines" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if ! grep -Fq "$line" "$gi"; then
+      if [ "$added" = "0" ]; then
+        printf "\n# Cursor Memory System (generated)\n" >>"$gi"
+        added="1"
+      fi
+      printf "%s\n" "$line" >>"$gi"
+    fi
+  done
+  echo "Updated .gitignore with memory artifacts"
+fi
+
+chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" "$GITHOOKS_DIR/post-commit" 2>/dev/null || true
 
 echo ""
 echo "Setup complete (Mnemo macOS shell installer)."
@@ -1585,4 +2058,10 @@ echo "Next:"
 echo "  sh ./scripts/memory/rebuild-memory-index.sh"
 echo "  sh ./scripts/memory/lint-memory.sh"
 echo "  git config core.hooksPath .githooks"
+if [ "$ENABLE_VECTOR" = "1" ]; then
+  echo "  restart Cursor, then run: vector_health and vector_sync"
+  echo ""
+  echo "Vector tools enabled: vector_search, vector_sync, vector_forget, vector_health"
+  echo "Important: post-commit uses shell env vars (export OPENAI_API_KEY/GEMINI_API_KEY)."
+fi
 
