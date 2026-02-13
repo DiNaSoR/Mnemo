@@ -19,6 +19,8 @@ Mnemo scaffolds a structured memory layer under `.cursor/` as the single source 
 - **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
 - **Optional SQLite FTS**: built if Python is available (`.cursor/memory/memory.sqlite`)
 - **Portable git hook**: `.githooks/pre-commit` to auto-rebuild + lint
+- **Optional vector semantic layer**: enable via installer flag to generate `scripts/memory/mnemo_vector.py` + Cursor tools (`vector_search`, `vector_sync`, `vector_forget`, `vector_health`)
+- **Optional vector rule + hook**: `.cursor/rules/01-vector-search.mdc` and `.githooks/post-commit` (only when vector mode is enabled)
 
 ### Quickstart
 
@@ -33,6 +35,20 @@ powershell -ExecutionPolicy Bypass -File .\memory.ps1 -ProjectName "MyProject"
 
 # Optional: overwrite previously generated files
 powershell -ExecutionPolicy Bypass -File .\memory.ps1 -Force
+
+# Optional: enable semantic vector layer (OpenAI default)
+powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector
+
+# Optional: enable semantic vector layer with Gemini embeddings
+powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector -VectorProvider gemini
+```
+
+macOS / POSIX shell:
+
+```sh
+sh ./memory_mac.sh
+sh ./memory_mac.sh --enable-vector
+sh ./memory_mac.sh --enable-vector --vector-provider gemini
 ```
 
 After setup:
@@ -48,6 +64,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\memory\lint-memory.ps1
 git config core.hooksPath .githooks
 ```
 
+If vector mode is enabled, run once after restart:
+
+```text
+vector_health
+vector_sync
+```
+
 ### Daily workflow (recommended)
 
 - **At task start**: write the goal + files in focus into `.cursor/memory/active-context.md`
@@ -56,6 +79,8 @@ git config core.hooksPath .githooks
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\memory\query-memory.ps1 -Query "your term"
 ```
+
+- **When keywords fail** (vector mode enabled): run semantic recall with `vector_search`.
 
 - **When done**:
   - add a journal entry
@@ -113,6 +138,11 @@ All scripts live in `scripts/memory/`.
 - **Clear active context** (`clear-active.ps1`)
   - Resets `.cursor/memory/active-context.md` to the blank template
 
+- **Vector engine** (`mnemo_vector.py`) - optional
+  - Generated only when vector mode is enabled at install time
+  - Exposes MCP tools: `vector_search`, `vector_sync`, `vector_forget`, `vector_health`
+  - Uses cosine similarity over markdown chunks from `.cursor/memory/`
+
 ### Git hooks
 
 Mnemo writes a pre-commit hook that:
@@ -121,10 +151,26 @@ Mnemo writes a pre-commit hook that:
 - stages the generated indexes/digests
 - skips gracefully if PowerShell isn’t available
 
+If vector mode is enabled, Mnemo also writes a post-commit hook that:
+
+- runs `vector_sync` non-blocking with a lock directory to avoid overlap
+- skips safely when API keys are missing
+- preserves existing post-commit behavior via a backup chain
+
 Enable the portable hook with:
 
 ```powershell
 git config core.hooksPath .githooks
+```
+
+Important: Cursor MCP tools read API keys from `.cursor/mcp.json` env placeholders, but git hooks read shell environment variables.  
+Export keys in your shell profile if you want post-commit vector auto-sync:
+
+```sh
+# bash/zsh examples
+export OPENAI_API_KEY="sk-..."
+# or
+export GEMINI_API_KEY="..."
 ```
 
 ### Multi-Agent Support
@@ -194,6 +240,10 @@ Point your agent's memory/context configuration to `.cursor/memory/`. The markdo
 - **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7 (`pwsh`)
 - **Git**
 - **Optional**: Python 3 for SQLite FTS index (`memory.sqlite`)
+- **Optional (vector mode)**:
+  - Python 3.10+
+  - API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`)
+  - Installer auto-installs: `openai`, `sqlite-vec`, `mcp[cli]>=1.2.0,<2.0` (+ `google-genai` for Gemini)
 
 ### License
 
