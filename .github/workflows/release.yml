@@ -16,7 +16,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Extract version from tag
         id: version
@@ -51,7 +51,7 @@ jobs:
     needs: preflight
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run regression tests
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
@@ -64,7 +64,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run regression tests
         run: sh ./tests/test-installer.sh
 
@@ -74,7 +74,7 @@ jobs:
     needs: [preflight, test-windows, test-posix]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Extract changelog section for this release
         id: changelog
