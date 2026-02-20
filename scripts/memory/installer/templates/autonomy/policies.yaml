@@ -1,0 +1,57 @@
+# Mnemo Memory System - Vault & Sensitivity Policy
+# Loaded by vault_policy.py at runtime.
+# Edit this file to customize sensitivity rules for your project.
+
+# Sensitivity classification rules (applied in order: secret > internal > public)
+sensitivity_paths:
+  secret:
+    - ".cursor/memory/vault/"
+    - ".env"
+    - "*.secret.*"
+    - "*credentials*"
+    - "*private-key*"
+  internal:
+    - ".cursor/memory/active-context.md"
+
+# Additional regex redaction patterns (applied on top of built-ins)
+# Built-ins already handle: API keys, bearer tokens, long random strings
+redaction_patterns:
+  # Add project-specific patterns here, e.g.:
+  # - "sk-[a-zA-Z0-9]{40,}"
+  # - "xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+"
+
+# Roles allowed to see 'internal' sensitivity content
+allow_internal_for_roles:
+  - agent
+  - autonomous
+
+# Maximum sensitivity level allowed in outgoing context packs
+# Options: public | internal
+# Setting 'public' means only public content is included
+max_sensitivity_in_context: internal
+
+# Autonomous ingestion: re-run sensitivity classification every N cycles
+reclassify_every_n_cycles: 10
+
+# Lifecycle deprecation: minimum confidence before auto-deprecating a fact
+deprecation_confidence_threshold: 0.8
+
+# Entity resolution: minimum Jaccard similarity to merge an alias
+alias_merge_threshold: 0.85
+
+# Lesson promotion: minimum fact confidence to auto-promote to lesson
+lesson_promotion_threshold: 0.95
+
+# Retrieval safety: minimum final_score for results to appear in context packs
+min_retrieval_score: 0.2
+
+# Token budgets (in characters, ~4 chars per token)
+token_budget_default: 6000
+token_budget_extended: 12000
+
+# Benchmark thresholds (used by CI quality gates)
+benchmark:
+  min_hit_at_3: 0.7
+  min_ndcg_at_5: 0.65
+  max_p95_latency_ms: 2000
+  max_token_cost_per_query: 0.005

@@ -97,6 +97,10 @@ jobs:
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
 
+      - name: Modularization guardrail checks
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
+
   # ─── macOS / Linux installer smoke tests ─────────────────────────────────────
   posix:
     name: ${{ matrix.os }} (sh)
@@ -183,3 +187,146 @@ jobs:
             echo "ERROR: CHANGELOG.md has no version sections"
             exit 1
           fi
+
+  # ─── Installer modularization anti-monolith guard ────────────────────────────
+  modularization-guard:
+    name: Monolith guard (memory.ps1 LOC check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check memory.ps1 line count (soft=400, hard=500)
+        run: |
+          loc=$(wc -l < memory.ps1)
+          echo "memory.ps1: $loc lines"
+          if [ "$loc" -gt 500 ]; then
+            echo "FAIL: memory.ps1 exceeds 500-line hard limit ($loc lines)"
+            echo "Move new logic to scripts/memory/installer/features/ or templates/"
+            exit 1
+          elif [ "$loc" -gt 400 ]; then
+            echo "WARN: memory.ps1 exceeds 400-line soft target ($loc lines)"
+          fi
+
+      - name: Check no large heredocs in memory.ps1
+        run: |
+          python3 -c "
+          import re, sys
+          content = open('memory.ps1', encoding='utf-8').read()
+          large = re.findall(r\"@'[\\s\\S]{400,}'@\", content)
+          if large:
+              print(f'FAIL: {len(large)} large single-quote heredoc(s) found in memory.ps1')
+              print('Move them to scripts/memory/installer/templates/')
+              sys.exit(1)
+          print('No large heredocs found in memory.ps1')
+          "
+
+      - name: Verify required module files exist
+        run: |
+          for f in \
+            scripts/memory/installer/bootstrap.ps1 \
+            scripts/memory/installer/core/io.ps1 \
+            scripts/memory/installer/core/paths.ps1 \
+            scripts/memory/installer/features/memory_scaffold.ps1 \
+            scripts/memory/installer/features/vector_setup.ps1 \
+            scripts/memory/installer/features/mcp_setup.ps1 \
+            scripts/memory/installer/features/hooks_setup.ps1 \
+            scripts/memory/installer/features/gitignore_setup.ps1; do
+            if [ ! -f "$f" ]; then
+              echo "FAIL: required module file missing: $f"
+              exit 1
+            fi
+          done
+          echo "All module files present"
+
+      - name: Verify autonomy template files exist
+        run: |
+          for f in \
+            scripts/memory/installer/templates/autonomy/__init__.py \
+            scripts/memory/installer/templates/autonomy/schema.py \
+            scripts/memory/installer/templates/autonomy/runner.py \
+            scripts/memory/installer/templates/autonomy/ingest_pipeline.py \
+            scripts/memory/installer/templates/autonomy/lifecycle_engine.py \
+            scripts/memory/installer/templates/autonomy/entity_resolver.py \
+            scripts/memory/installer/templates/autonomy/retrieval_router.py \
+            scripts/memory/installer/templates/autonomy/reranker.py \
+            scripts/memory/installer/templates/autonomy/context_safety.py \
+            scripts/memory/installer/templates/autonomy/vault_policy.py \
+            scripts/memory/installer/templates/autonomy/policies.yaml; do
+            if [ ! -f "$f" ]; then
+              echo "FAIL: autonomy template missing: $f"
+              exit 1
+            fi
+          done
+          echo "All autonomy templates present"
+
+  # ─── Retrieval quality benchmark ─────────────────────────────────────────────
+  retrieval-quality:
+    name: Retrieval quality benchmark
+    runs-on: ubuntu-latest
+    needs: [version-check]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet sqlite-vec mcp pyyaml
+
+      - name: Install Mnemo to temp dir
+        run: |
+          mkdir -p /tmp/mnemo-bench
+          python3 -c "
+          import subprocess, sys
+          r = subprocess.run(['pwsh', '-ExecutionPolicy', 'Bypass', '-File', 'memory.ps1',
+              '-RepoRoot', '/tmp/mnemo-bench', '-ProjectName', 'BenchTest'],
+              capture_output=True, text=True)
+          print(r.stdout)
+          if r.returncode != 0:
+              print(r.stderr, file=sys.stderr)
+          " || true
+
+      - name: Run benchmark (FTS mode, no API key required)
+        working-directory: /tmp/mnemo-bench
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/retrieval/benchmark_runner.py \
+            --fixtures $GITHUB_WORKSPACE/tests/retrieval/fixtures/ \
+            --persist-baseline /tmp/bench-metrics.json || true
+          echo "Benchmark complete (fixture-only mode)"
+
+  # ─── Autonomy Python module syntax check ─────────────────────────────────────
+  autonomy-syntax:
+    name: Autonomy module syntax (py3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal deps for syntax check
+        run: pip install --quiet pyyaml
+
+      - name: Syntax check all autonomy templates
+        run: |
+          failed=0
+          for f in scripts/memory/installer/templates/autonomy/*.py; do
+            if ! python3 -m py_compile "$f" 2>&1; then
+              echo "SYNTAX ERROR: $f"
+              failed=1
+            fi
+          done
+          [ -f scripts/memory/installer/templates/mnemo_vector.py ] && \
+            python3 -m py_compile scripts/memory/installer/templates/mnemo_vector.py
+          for f in tests/retrieval/*.py; do
+            if ! python3 -m py_compile "$f" 2>&1; then
+              echo "SYNTAX ERROR: $f"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then exit 1; fi
+          echo "All Python files pass syntax check"

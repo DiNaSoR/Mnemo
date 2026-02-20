@@ -1,0 +1,110 @@
+name: Nightly Memory Benchmark
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 2 AM UTC daily
+  workflow_dispatch:
+    inputs:
+      fail_on_regression:
+        description: "Fail if quality regression detected"
+        default: "true"
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-bench:
+    name: Nightly quality + drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet sqlite-vec mcp pyyaml
+
+      - name: Restore baseline metrics (if exists)
+        id: restore-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/bench-baseline.json
+          key: bench-baseline-${{ github.ref_name }}
+          restore-keys: |
+            bench-baseline-
+
+      - name: Install Mnemo to temp dir
+        run: |
+          mkdir -p /tmp/mnemo-nightly
+          pwsh -ExecutionPolicy Bypass -File memory.ps1 \
+            -RepoRoot /tmp/mnemo-nightly \
+            -ProjectName NightlyBench || true
+
+      - name: Run benchmark
+        id: benchmark
+        run: |
+          cd /tmp/mnemo-nightly
+          python3 $GITHUB_WORKSPACE/tests/retrieval/benchmark_runner.py \
+            --fixtures $GITHUB_WORKSPACE/tests/retrieval/fixtures/ \
+            --persist-baseline /tmp/bench-current.json \
+            --policy $GITHUB_WORKSPACE/scripts/memory/installer/templates/autonomy/policies.yaml
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Drift check vs baseline
+        if: steps.restore-baseline.outputs.cache-hit == 'true'
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/retrieval/drift_check.py \
+            --current /tmp/bench-current.json \
+            --baseline /tmp/bench-baseline.json \
+            --output /tmp/drift-report.json \
+            ${{ (github.event.inputs.fail_on_regression == 'true') && '--fail-on-regression' || '' }}
+
+      - name: Promote current to baseline
+        run: cp /tmp/bench-current.json /tmp/bench-baseline.json
+
+      - name: Save baseline metrics
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/bench-baseline.json
+          key: bench-baseline-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-metrics-${{ github.run_id }}
+          path: |
+            /tmp/bench-current.json
+            /tmp/drift-report.json
+          retention-days: 30
+
+  modularization-nightly:
+    name: Nightly modularization check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check memory.ps1 LOC trend
+        run: |
+          loc=$(wc -l < memory.ps1)
+          echo "memory.ps1: $loc lines"
+          echo "loc=$loc" >> $GITHUB_STEP_SUMMARY
+          if [ "$loc" -gt 500 ]; then
+            echo "FAIL: memory.ps1 > 500 lines (hard limit)" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Module file inventory
+        run: |
+          echo "## Module files" >> $GITHUB_STEP_SUMMARY
+          find scripts/memory/installer/ -type f | sort | while read f; do
+            wc -l "$f" | awk '{print "  "$1": "$2}' >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Autonomy template files" >> $GITHUB_STEP_SUMMARY
+          find scripts/memory/installer/templates/autonomy/ -type f | sort >> $GITHUB_STEP_SUMMARY

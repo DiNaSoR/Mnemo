@@ -1606,19 +1606,33 @@ if [ "$ENABLE_VECTOR" = "1" ]; then
   echo "Vector mode enabled (provider: $VECTOR_PROVIDER)"
 
   if [ "$DRY_RUN" != "1" ]; then
-    if ! command -v python3 >/dev/null 2>&1; then
-      echo "Vector mode requires python3 (3.10+)." >&2
+    # Robust Python detection: try python3.12, python3.11, python3.10, python3, python
+    PYTHON3_CMD=""
+    for _py_candidate in python3.12 python3.11 python3.10 python3 python; do
+      if command -v "$_py_candidate" >/dev/null 2>&1; then
+        _ver="$($_py_candidate -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+        _major="$(echo "$_ver" | cut -d. -f1)"
+        _minor="$(echo "$_ver" | cut -d. -f2)"
+        if [ "${_major:-0}" -ge 3 ] && [ "${_minor:-0}" -ge 10 ] 2>/dev/null; then
+          PYTHON3_CMD="$_py_candidate"
+          break
+        fi
+      fi
+    done
+    if [ -z "$PYTHON3_CMD" ]; then
+      echo "Vector mode requires Python 3.10+ (python3/python not found or version too old)." >&2
+      echo "Install Homebrew Python: brew install python@3.12" >&2
       exit 1
     fi
 
-    if ! python3 -m pip --version >/dev/null 2>&1; then
-      echo "python3 pip is unavailable in this environment." >&2
+    if ! "$PYTHON3_CMD" -m pip --version >/dev/null 2>&1; then
+      echo "pip is unavailable for $PYTHON3_CMD." >&2
       echo "Install Homebrew Python (brew install python) or use a virtualenv." >&2
       exit 1
     fi
 
     need_pip_install="1"
-    if [ "$FORCE" != "1" ] && python3 - "$VECTOR_PROVIDER" <<'PY' >/dev/null 2>&1; then
+    if [ "$FORCE" != "1" ] && "$PYTHON3_CMD" - "$VECTOR_PROVIDER" <<'PY' >/dev/null 2>&1; then
 import importlib.util
 import sys
 
@@ -1640,7 +1654,7 @@ PY
       fi
 
       # shellcheck disable=SC2086
-      if ! python3 -m pip install --quiet $pkgs 2>"$pip_err"; then
+      if ! "$PYTHON3_CMD" -m pip install --quiet $pkgs 2>"$pip_err"; then
         if grep -Ei "externally managed|externally-managed" "$pip_err" >/dev/null 2>&1; then
           echo "Python is externally managed (PEP668)." >&2
           echo "Use Homebrew Python or a venv, then re-run with --enable-vector." >&2
@@ -1657,10 +1671,20 @@ PY
     echo "[DRY RUN] Skipping vector dependency checks/install."
   fi
 
+  # Use template file if running from Mnemo installer repo; else use embedded copy
+  _vector_tpl="$_INSTALLER_DIR/scripts/memory/installer/templates/mnemo_vector.py"
+  if [ -f "$_vector_tpl" ]; then
+    if [ -f "$MEM_SCRIPTS_DIR/mnemo_vector.py" ] && [ "$FORCE" != "1" ]; then
+      echo "SKIP (exists): $MEM_SCRIPTS_DIR/mnemo_vector.py"
+    else
+      cp "$_vector_tpl" "$MEM_SCRIPTS_DIR/mnemo_vector.py"
+      echo "WROTE: $MEM_SCRIPTS_DIR/mnemo_vector.py"
+    fi
+  else
   write_file "$MEM_SCRIPTS_DIR/mnemo_vector.py" <<'EOF'
 #!/usr/bin/env python3
 """
-Mnemo vector memory engine.
+Mnemo vector memory engine (v2 - embedded fallback).
 Optional semantic layer for .cursor/memory with MCP tools.
 """
 import os
@@ -1676,7 +1700,7 @@ except ImportError:
     from sqlite_vec import serialize_f32  # backwards compatibility
 from mcp.server.fastmcp import FastMCP
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 EMBED_DIM = 1536
 MEM_ROOT = Path(".cursor/memory")
 DB_PATH = MEM_ROOT / "mnemo_vector.sqlite"
@@ -1989,6 +2013,7 @@ def vector_health() -> str:
 if __name__ == "__main__":
     mcp.run()
 EOF
+  fi  # end: template file check for mnemo_vector.py
 
   write_file "$RULES_DIR/01-vector-search.mdc" <<'EOF'
 ---
@@ -2158,7 +2183,8 @@ if [ "$ENABLE_VECTOR" = "1" ]; then
 .cursor/memory/mnemo_vector.sqlite-journal
 .cursor/memory/mnemo_vector.sqlite-wal
 .cursor/memory/mnemo_vector.sqlite-shm
-.cursor/memory/.sync.lock"
+.cursor/memory/.sync.lock
+.cursor/memory/.autonomy/"
 fi
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -2192,12 +2218,31 @@ fi
 
 chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" "$GITHOOKS_DIR/post-commit" 2>/dev/null || true
 
+# Auto-configure portable hooks path (removes manual step)
+if [ "$DRY_RUN" != "1" ] && [ -d "$REPO_ROOT/.git" ]; then
+  _current_hp="$(git -C "$REPO_ROOT" config core.hooksPath 2>/dev/null || true)"
+  if [ "$_current_hp" != ".githooks" ]; then
+    git -C "$REPO_ROOT" config core.hooksPath .githooks 2>/dev/null || true
+    echo "Configured: git config core.hooksPath .githooks"
+  fi
+fi
+
+# Copy autonomy modules from installer templates if available and vector is enabled
+if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+  _autonomy_tpl="$_INSTALLER_DIR/scripts/memory/installer/templates/autonomy"
+  _autonomy_dest="$MEM_SCRIPTS_DIR/autonomy"
+  mkdir -p "$_autonomy_dest"
+  if [ -d "$_autonomy_tpl" ]; then
+    cp -r "$_autonomy_tpl/." "$_autonomy_dest/" 2>/dev/null || true
+    echo "WROTE: $MEM_SCRIPTS_DIR/autonomy/ (autonomy runtime modules)"
+  fi
+fi
+
 echo ""
 echo "Setup complete. (Mnemo v$MNEMO_VERSION)"
 echo "Next:"
 echo "  sh ./scripts/memory/rebuild-memory-index.sh"
 echo "  sh ./scripts/memory/lint-memory.sh"
-echo "  git config core.hooksPath .githooks"
 if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
   echo "  restart Cursor, then run: vector_health and vector_sync"
   echo ""

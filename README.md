@@ -7,11 +7,11 @@
 [![CI](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml/badge.svg)](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/DiNaSoR/Mnemo)](LICENSE)
 
-Windows-first, token-safe **repo memory system** for AI coding agents.
+Windows-first, token-safe **repo memory system** for AI coding agents — with a fully autonomous runtime that needs no human intervention after initial install.
 
 > **Works with:** Cursor • Claude Code • Gemini Antigravity • OpenAI Codex • Windsurf • and more
 
-Mnemo scaffolds a structured memory layer under `.cursor/` as the single source of truth. Other agents can be configured to read from this same directory—no duplication needed.
+Mnemo scaffolds a structured memory layer under `.cursor/` as the single source of truth, then keeps it up-to-date automatically via git hook triggers and a background scheduler.
 
 ### What you get
 
@@ -21,9 +21,10 @@ Mnemo scaffolds a structured memory layer under `.cursor/` as the single source 
 - **Agent rule enforcement**: `.cursor/rules/00-memory-system.mdc` (Cursor-native, adaptable for others)
 - **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
 - **Optional SQLite FTS**: built if Python is available (`.cursor/memory/memory.sqlite`)
-- **Portable git hook**: `.githooks/pre-commit` to auto-rebuild + lint
-- **Optional vector semantic layer**: enable via installer flag to generate `scripts/memory/mnemo_vector.py` + Cursor tools (`vector_search`, `vector_sync`, `vector_forget`, `vector_health`)
+- **Portable git hook**: `.githooks/pre-commit` to auto-rebuild + lint (auto-configured — no `git config` step)
+- **Optional vector semantic layer**: enable via installer flag to generate `scripts/memory/mnemo_vector.py` + Cursor tools (`vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`)
 - **Optional vector rule + hook**: `.cursor/rules/01-vector-search.mdc` and `.githooks/post-commit` (only when vector mode is enabled)
+- **Autonomous runtime** (when vector enabled): `scripts/memory/autonomy/runner.py` — zero-operator memory ingestion, typed metadata, fact lifecycle, entity resolution, authority-aware reranking, context safety, and nightly quality gates
 
 ### Quickstart
 
@@ -54,7 +55,7 @@ sh ./memory_mac.sh --enable-vector
 sh ./memory_mac.sh --enable-vector --vector-provider gemini
 ```
 
-After setup:
+After setup (git hooks are auto-configured; no extra steps needed):
 
 ```powershell
 # Build indexes + (optionally) SQLite index
@@ -62,17 +63,38 @@ powershell -ExecutionPolicy Bypass -File .\scripts\memory\rebuild-memory-index.p
 
 # Validate memory health (frontmatter, tags, token budget, etc.)
 powershell -ExecutionPolicy Bypass -File .\scripts\memory\lint-memory.ps1
-
-# Enable portable hooks (recommended)
-git config core.hooksPath .githooks
 ```
 
-If vector mode is enabled, run once after restart:
+If vector mode is enabled, run once after restart to seed the index:
 
 ```text
 vector_health
 vector_sync
 ```
+
+After the first sync, the system is autonomous — it re-syncs automatically on every commit via `post-commit` hook. No manual operator steps needed.
+
+### Autonomous mode (no human in the loop)
+
+When installed with `-EnableVector` (or `--enable-vector`), Mnemo enters autonomous mode:
+
+| Component | What it does |
+|---|---|
+| `autonomy/runner.py` | Change detection → ingest → classify → lifecycle → journal delta |
+| `autonomy/ingest_pipeline.py` | Chunks changed `.md` files with typed metadata classification |
+| `autonomy/lifecycle_engine.py` | ADD / UPDATE / DEPRECATE / NOOP per fact with audit trail |
+| `autonomy/entity_resolver.py` | Stable entity IDs + alias resolution across memory units |
+| `autonomy/retrieval_router.py` | Intent classification → routes queries to right memory class |
+| `autonomy/reranker.py` | Score fusion (semantic + authority + temporal + entity) |
+| `autonomy/context_safety.py` | Dedup + contradiction detection + token budget enforcement |
+| `autonomy/vault_policy.py` | Redaction of secret/vault sensitivity entries |
+| `autonomy/policies.yaml` | Policy config (thresholds, sensitivity rules, token budgets) |
+
+The runner triggers on:
+- `post-commit` git hook (after every commit)
+- `post-merge` / `post-checkout` hooks
+- Periodic scheduler (`python runner.py --mode schedule`)
+- Direct call (`python runner.py --mode once`)
 
 ### Daily workflow (recommended)
 
@@ -143,8 +165,20 @@ All scripts live in `scripts/memory/`.
 
 - **Vector engine** (`mnemo_vector.py`) - optional
   - Generated only when vector mode is enabled at install time
-  - Exposes MCP tools: `vector_search`, `vector_sync`, `vector_forget`, `vector_health`
-  - Uses cosine similarity over markdown chunks from `.cursor/memory/`
+  - Exposes MCP tools: `vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`
+  - Uses authority-aware score fusion reranking (semantic + authority weight + temporal decay + entity match)
+  - Schema v2: includes `memory_units`, `facts`, `lifecycle_events`, `entities` tables
+
+- **Autonomous runtime** (`scripts/memory/autonomy/`) - installed with vector mode
+  - `runner.py` — orchestrates the full autonomous memory cycle
+  - `ingest_pipeline.py` — typed metadata classification per file
+  - `lifecycle_engine.py` — fact ADD/UPDATE/DEPRECATE/NOOP with audit log
+  - `entity_resolver.py` — stable entity IDs + alias mapping
+  - `retrieval_router.py` — intent-based routing to memory classes
+  - `reranker.py` — score fusion reranker
+  - `context_safety.py` — safety guard for context packs
+  - `vault_policy.py` — sensitivity redaction pipeline
+  - `policies.yaml` — per-project policy configuration
 
 ### Git hooks
 
@@ -160,11 +194,7 @@ If vector mode is enabled, Mnemo also writes a post-commit hook that:
 - skips safely when API keys are missing
 - preserves existing post-commit behavior via a backup chain
 
-Enable the portable hook with:
-
-```powershell
-git config core.hooksPath .githooks
-```
+Mnemo **auto-configures** `git config core.hooksPath .githooks` during install — no manual step needed.
 
 Important: Cursor MCP tools read API keys from `.cursor/mcp.json` env placeholders, but git hooks read shell environment variables.  
 Export keys in your shell profile if you want post-commit vector auto-sync:

@@ -1,0 +1,43 @@
+[
+  {
+    "query": "how to add a new lesson",
+    "description": "Procedural query - should retrieve lessons directory files",
+    "relevant_refs": [
+      "add-lesson.ps1",
+      "lessons/index.md",
+      "lesson.template.md"
+    ]
+  },
+  {
+    "query": "token budget memory size limit",
+    "description": "Core invariant query - should retrieve hot-rules or memo",
+    "relevant_refs": [
+      "hot-rules.md",
+      "memo.md",
+      "index.md"
+    ]
+  },
+  {
+    "query": "IL2CPP crash bug exception",
+    "description": "Error/lesson query - should prefer lessons",
+    "relevant_refs": [
+      "lessons/index.md"
+    ]
+  },
+  {
+    "query": "authority order lessons override active-context",
+    "description": "Rule query - should find hot-rules or memory system rule",
+    "relevant_refs": [
+      "hot-rules.md",
+      "00-memory-system.mdc"
+    ]
+  },
+  {
+    "query": "vector sync embeddings semantic search",
+    "description": "Vector layer query",
+    "relevant_refs": [
+      "mnemo_vector.py",
+      "01-vector-search.mdc"
+    ]
+  }
+]
