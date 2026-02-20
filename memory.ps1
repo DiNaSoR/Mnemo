@@ -114,8 +114,8 @@ $TemplatesDir = Join-Path $MemoryDir "templates"
 $ScriptsDir   = Join-Path $RepoRoot "scripts"
 $MemScripts   = Join-Path $ScriptsDir "memory"
 $GitDir       = Join-Path $RepoRoot ".git"
-$GitHooksDir  = Join-Path $GitDir "hooks"
-$GithooksDir  = Join-Path $RepoRoot ".githooks"
+$GitHooksDir      = Join-Path $GitDir "hooks"
+$PortableHooksDir = Join-Path $RepoRoot ".githooks"
 
 New-DirectoryIfMissing $CursorDir
 New-DirectoryIfMissing $MemoryDir
@@ -127,7 +127,7 @@ New-DirectoryIfMissing $LessonsDir
 New-DirectoryIfMissing $TemplatesDir
 New-DirectoryIfMissing $ScriptsDir
 New-DirectoryIfMissing $MemScripts
-New-DirectoryIfMissing $GithooksDir
+New-DirectoryIfMissing $PortableHooksDir
 
 $month = (Get-Date -Format "yyyy-MM")
 $today = (Get-Date -Format "yyyy-MM-dd")
@@ -2431,7 +2431,7 @@ exit 0
 '@
 
 # Write .githooks/pre-commit (portable path)
-$githookPath = Join-Path $GithooksDir "pre-commit"
+$githookPath = Join-Path $PortableHooksDir "pre-commit"
 Write-TextFile $githookPath $hookBody -ForceWrite:$Force -LineEndings "LF"
 
 # Also write .git/hooks/pre-commit for immediate effect
@@ -2492,8 +2492,8 @@ fi
 exit 0
 "@
 
-  $postHookPath = Join-Path $GithooksDir "post-commit"
-  $backupPath = Join-Path $GithooksDir $backupName
+  $postHookPath = Join-Path $PortableHooksDir "post-commit"
+  $backupPath = Join-Path $PortableHooksDir $backupName
   if (Test-Path $postHookPath) {
     $existingPost = Get-Content -Raw -ErrorAction SilentlyContinue $postHookPath
     if ($existingPost -and $existingPost -notmatch [regex]::Escape($postMarker)) {
