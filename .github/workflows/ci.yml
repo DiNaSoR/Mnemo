@@ -32,7 +32,7 @@ jobs:
           }
 
       - name: Run installer (scratch)
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -40,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run rebuild + lint
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
           powershell -ExecutionPolicy Bypass -File "$dest\scripts\memory\rebuild-memory-index.ps1" -RepoRoot $dest
@@ -49,7 +49,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Idempotency check (re-run without --Force, expect SKIPs only)
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
           $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest 2>&1
@@ -61,7 +61,7 @@ jobs:
           }
 
       - name: Idempotency check (re-run with --Force, expect WROTEs)
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
           $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest -Force 2>&1
@@ -73,7 +73,7 @@ jobs:
           }
 
       - name: Dry-run check (no files created)
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-dryrun"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -86,7 +86,7 @@ jobs:
           }
 
       - name: Path-with-spaces test
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo with spaces"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -94,7 +94,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run full regression test suite
-        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
 
   # ─── macOS / Linux installer smoke tests ─────────────────────────────────────
