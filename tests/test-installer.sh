@@ -169,7 +169,7 @@ if should_run version-in-output; then
   expected_ver="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
   run_installer "$dest" >/dev/null
   ok=1
-  for jf in "$dest/.cursor/memory/journal/"*.md; do
+  for jf in "$dest/.cursor/memory/journal/"????-??.md; do
     [ -f "$jf" ] || continue
     if ! grep -q "Mnemo v$expected_ver" "$jf"; then
       fail version-in-output "Journal $(basename "$jf") does not contain 'Mnemo v$expected_ver'"
