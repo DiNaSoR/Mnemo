@@ -1563,33 +1563,64 @@ SKIP_NAMES = {
     "journal-index.md",
 }
 SKIP_DIRS = {"legacy", "templates"}
+MAX_EMBED_CHARS = 12000
+BATCH_SIZE = 16 if PROVIDER == "gemini" else 64
+_EMBED_CLIENT = None
 
 mcp = FastMCP("MnemoVector")
 
 
-def get_embedding(text: str) -> list[float]:
+def _trim_for_embedding(text: str) -> str:
     # Conservative provider-agnostic cap for dense text/CJK/code.
-    trimmed = text[:12000] if len(text) > 12000 else text
+    return text[:MAX_EMBED_CHARS] if len(text) > MAX_EMBED_CHARS else text
+
+
+def _get_embed_client():
+    global _EMBED_CLIENT
+    if _EMBED_CLIENT is not None:
+        return _EMBED_CLIENT
+
     if PROVIDER == "gemini":
         key = os.getenv("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
         from google import genai
-        client = genai.Client(api_key=key)
-        result = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=trimmed,
-            config={"output_dimensionality": EMBED_DIM},
-        )
-        return result.embeddings[0].values
+        _EMBED_CLIENT = genai.Client(api_key=key)
+        return _EMBED_CLIENT
 
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set")
     from openai import OpenAI
-    client = OpenAI(api_key=key)
-    resp = client.embeddings.create(input=[trimmed], model="text-embedding-3-small")
-    return resp.data[0].embedding
+    _EMBED_CLIENT = OpenAI(api_key=key)
+    return _EMBED_CLIENT
+
+
+def get_embeddings(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    trimmed = [_trim_for_embedding(t) for t in texts]
+    client = _get_embed_client()
+
+    if PROVIDER == "gemini":
+        from google.genai import types
+        result = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=trimmed,
+            config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
+        )
+        vectors = [emb.values for emb in result.embeddings]
+    else:
+        resp = client.embeddings.create(input=trimmed, model="text-embedding-3-small")
+        vectors = [item.embedding for item in resp.data]
+
+    if len(vectors) != len(trimmed):
+        raise RuntimeError(f"Embedding provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
+    return vectors
+
+
+def get_embedding(text: str) -> list[float]:
+    return get_embeddings([text])[0]
 
 
 def get_db() -> sqlite3.Connection:
@@ -1736,16 +1767,29 @@ def vector_sync() -> str:
         embedded = 0
         chunk_errors = 0
 
-        for text, ref in chunks:
+        for i in range(0, len(chunks), BATCH_SIZE):
+            batch = chunks[i : i + BATCH_SIZE]
+            texts = [text for text, _ in batch]
             try:
-                emb = get_embedding(text)
-                db.execute(
-                    "INSERT INTO vec_memory(embedding, ref_path, content, source_file) VALUES (?, ?, ?, ?)",
-                    (serialize_f32(emb), ref, text, str_path),
-                )
-                embedded += 1
+                vectors = get_embeddings(texts)
+                for (text, ref), emb in zip(batch, vectors):
+                    db.execute(
+                        "INSERT INTO vec_memory(embedding, ref_path, content, source_file) VALUES (?, ?, ?, ?)",
+                        (serialize_f32(emb), ref, text, str_path),
+                    )
+                    embedded += 1
             except Exception:
-                chunk_errors += 1
+                # Fall back to single-item embedding so one bad chunk does not fail the whole batch.
+                for text, ref in batch:
+                    try:
+                        emb = get_embedding(text)
+                        db.execute(
+                            "INSERT INTO vec_memory(embedding, ref_path, content, source_file) VALUES (?, ?, ?, ?)",
+                            (serialize_f32(emb), ref, text, str_path),
+                        )
+                        embedded += 1
+                    except Exception:
+                        chunk_errors += 1
 
         if chunk_errors == 0:
             db.execute(
