@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── Windows installer smoke tests ───────────────────────────────────────────
+  windows:
+    name: Windows (PowerShell ${{ matrix.pwsh }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pwsh: ["5", "7"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select PowerShell version
+        shell: pwsh
+        run: |
+          if ("${{ matrix.pwsh }}" -eq "5") {
+            Write-Host "Using Windows PowerShell 5 (default on windows-latest)"
+          } else {
+            Write-Host "Using PowerShell 7+ (pwsh)"
+          }
+
+      - name: Run installer (scratch)
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run rebuild + lint
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
+          powershell -ExecutionPolicy Bypass -File "$dest\scripts\memory\rebuild-memory-index.ps1" -RepoRoot $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -ExecutionPolicy Bypass -File "$dest\scripts\memory\lint-memory.ps1" -RepoRoot $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Idempotency check (re-run without --Force, expect SKIPs only)
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
+          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest 2>&1
+          $out | Write-Host
+          $wrote = $out | Where-Object { $_ -match "^WROTE:" }
+          if ($wrote) {
+            Write-Error "Idempotency failed: installer overwrote files on second run without -Force:`n$($wrote -join "`n")"
+            exit 1
+          }
+
+      - name: Idempotency check (re-run with --Force, expect WROTEs)
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
+          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest -Force 2>&1
+          $out | Write-Host
+          $wrote = $out | Where-Object { $_ -match "^WROTE:" }
+          if (-not $wrote) {
+            Write-Error "Force flag had no effect: no files were written."
+            exit 1
+          }
+
+      - name: Dry-run check (no files created)
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-dryrun"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest -DryRun 2>&1
+          $out | Write-Host
+          $files = Get-ChildItem -Recurse -File $dest -ErrorAction SilentlyContinue
+          if ($files) {
+            Write-Error "Dry-run created files: $($files.FullName -join ', ')"
+            exit 1
+          }
+
+      - name: Path-with-spaces test
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo with spaces"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run full regression test suite
+        shell: ${{ matrix.pwsh == '5' && 'powershell' || 'pwsh' }}
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
+
+  # ─── macOS / Linux installer smoke tests ─────────────────────────────────────
+  posix:
+    name: ${{ matrix.os }} (sh)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer (scratch)
+        run: |
+          dest="$RUNNER_TEMP/mnemo-test"
+          mkdir -p "$dest"
+          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest
+
+      - name: Run rebuild + lint
+        run: |
+          dest="$RUNNER_TEMP/mnemo-test"
+          sh "$dest/scripts/memory/rebuild-memory-index.sh"
+          sh "$dest/scripts/memory/lint-memory.sh"
+
+      - name: Idempotency check (re-run without --force, expect SKIPs only)
+        run: |
+          dest="$RUNNER_TEMP/mnemo-test"
+          out="$(sh ./memory_mac.sh --repo-root "$dest" --project-name CITest 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "^WROTE:"; then
+            echo "ERROR: Idempotency failed — installer overwrote files on second run without --force"
+            exit 1
+          fi
+
+      - name: Idempotency check (re-run with --force, expect WROTEs)
+        run: |
+          dest="$RUNNER_TEMP/mnemo-test"
+          out="$(sh ./memory_mac.sh --repo-root "$dest" --project-name CITest --force 2>&1)"
+          echo "$out"
+          if ! echo "$out" | grep -q "^WROTE:"; then
+            echo "ERROR: --force had no effect — no files were written"
+            exit 1
+          fi
+
+      - name: Dry-run check (no files created)
+        run: |
+          dest="$RUNNER_TEMP/mnemo-dryrun"
+          mkdir -p "$dest"
+          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest --dry-run
+          count="$(find "$dest" -type f 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "$count" -gt 0 ]; then
+            echo "ERROR: Dry-run created $count file(s)"
+            find "$dest" -type f
+            exit 1
+          fi
+
+      - name: Path-with-spaces test
+        run: |
+          dest="$RUNNER_TEMP/mnemo with spaces"
+          mkdir -p "$dest"
+          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest
+
+      - name: Run full regression test suite
+        run: sh ./tests/test-installer.sh
+
+  # ─── Lint: VERSION file consistency ──────────────────────────────────────────
+  version-check:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check VERSION file exists and is valid semver
+        run: |
+          version="$(cat VERSION | tr -d '[:space:]')"
+          echo "VERSION = $version"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "ERROR: VERSION file does not contain a valid semver string"
+            exit 1
+          fi
+
+      - name: Check CHANGELOG has an [Unreleased] or version entry
+        run: |
+          if ! grep -q '## \[' CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md has no version sections"
+            exit 1
+          fi

@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── Pre-flight checks ────────────────────────────────────────────────────────
+  preflight:
+    name: Pre-flight checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag: $TAG  ->  Version: $VERSION"
+
+      - name: Verify VERSION file matches tag
+        run: |
+          FILE_VER="$(cat VERSION | tr -d '[:space:]')"
+          TAG_VER="${{ steps.version.outputs.version }}"
+          if [ "$FILE_VER" != "$TAG_VER" ]; then
+            echo "ERROR: VERSION file ($FILE_VER) does not match git tag ($TAG_VER)"
+            echo "Update the VERSION file and push a new tag."
+            exit 1
+          fi
+
+      - name: Verify CHANGELOG has entry for this version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! grep -qF "## [$VERSION]" CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md has no entry for version $VERSION"
+            echo "Add a ## [$VERSION] section before creating a release tag."
+            exit 1
+          fi
+
+  # ─── Run CI tests before publishing ─────────────────────────────────────────
+  test-windows:
+    name: Test Windows
+    needs: preflight
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run regression tests
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
+
+  test-posix:
+    name: Test POSIX (${{ matrix.os }})
+    needs: preflight
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run regression tests
+        run: sh ./tests/test-installer.sh
+
+  # ─── Publish GitHub release ───────────────────────────────────────────────────
+  publish:
+    name: Publish release
+    needs: [preflight, test-windows, test-posix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog section for this release
+        id: changelog
+        run: |
+          VERSION="${{ needs.preflight.outputs.version }}"
+          # Extract the section between ## [VERSION] and the next ## [
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "["ver"]") > 0) found=1; next }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          echo "Release notes:"
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Mnemo v${{ needs.preflight.outputs.version }}"
+          body_path: release_notes.md
+          files: |
+            memory.ps1
+            memory_mac.sh
+            VERSION
+          draft: false
+          prerelease: false

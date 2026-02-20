@@ -1,8 +1,10 @@
 <#
-memory.ps1 (Mnemo v3.3.0)
+memory.ps1 - Mnemo Windows Installer
 Windows-first, token-safe, scalable repo memory for AI coding agents.
 
-Merged from v3 (our helpers) (BOM handling, tag validation, portable hooks):
+Version is read from VERSION file at repo root.
+
+Features:
 - Curated "always read" memory: hot-rules.md + active-context.md + memo.md
 - Atomic lessons (individual files) with strict YAML frontmatter
 - Monthly journal + auto-generated digest + journal index
@@ -17,6 +19,7 @@ USAGE (from repo root):
   powershell -ExecutionPolicy Bypass -File .\memory.ps1
   powershell -ExecutionPolicy Bypass -File .\memory.ps1 -ProjectName "MyProject"
   powershell -ExecutionPolicy Bypass -File .\memory.ps1 -Force
+  powershell -ExecutionPolicy Bypass -File .\memory.ps1 -DryRun
   powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector
   powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector -VectorProvider gemini
 
@@ -29,6 +32,7 @@ param(
   [string]$RepoRoot = (Get-Location).Path,
   [string]$ProjectName = "",
   [switch]$Force,
+  [switch]$DryRun,
   [switch]$EnableVector,
   [ValidateSet("openai","gemini")][string]$VectorProvider = "openai"
 )
@@ -36,9 +40,21 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Read version from VERSION file (single source of truth)
+$_versionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "VERSION"
+$MnemoVersion = if (Test-Path $_versionFile) { (Get-Content $_versionFile -Raw).Trim() } else { "0.0.0" }
+
+if ($DryRun) {
+  Write-Host "[DRY RUN] No files will be written. Showing what would happen." -ForegroundColor Cyan
+}
+
 function New-DirectoryIfMissing {
   param([Parameter(Mandatory=$true)][string]$Path)
   if (!(Test-Path $Path)) {
+    if ($DryRun) {
+      Write-Host "[DRY RUN] WOULD CREATE DIR: $Path" -ForegroundColor DarkCyan
+      return
+    }
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
     Write-Host "DIR: $Path" -ForegroundColor Green
   }
@@ -53,10 +69,18 @@ function Write-TextFile {
   )
 
   $dir = Split-Path -Parent $Path
-  if ($dir -and !(Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  if ($dir -and !(Test-Path $dir)) {
+    if ($DryRun) { Write-Host "[DRY RUN] WOULD CREATE DIR: $dir" -ForegroundColor DarkCyan; return }
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  }
 
   if ((Test-Path $Path) -and (-not $ForceWrite)) {
     Write-Host "SKIP (exists): $Path" -ForegroundColor DarkYellow
+    return
+  }
+
+  if ($DryRun) {
+    Write-Host "[DRY RUN] WOULD WRITE: $Path" -ForegroundColor DarkCyan
     return
   }
 
@@ -269,7 +293,7 @@ $journalMonth = @"
 
 ## $today
 
-- [Process] Initialized memory system (Memory v3.2.2)
+- [Process] Initialized memory system (Mnemo v$MnemoVersion)
   - Why: token-safe AI memory + indexed retrieval + portable hooks
   - Key files:
     - ``.cursor/memory/*``
@@ -445,7 +469,7 @@ Write-TextFile (Join-Path $TemplatesDir "adr.template.md") $templateAdr -ForceWr
 
 $memoryRule = @"
 ---
-description: Memory System v3.2.2 - Authority + Atomic Retrieval + Token Safety
+description: Memory System v$MnemoVersion - Authority + Atomic Retrieval + Token Safety
 globs:
   - "**/*"
 alwaysApply: true
@@ -1246,11 +1270,19 @@ $SqlitePath = Join-Path $MemoryDir "memory.sqlite"
 
 # If SQLite mode requested, use python helper if possible.
 if ($UseSqlite) {
-  $python = Get-Command python -ErrorAction SilentlyContinue
+  $pyPath = $null
+  foreach ($candidate in @("python","py","python3")) {
+    $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+    if ($null -eq $cmd) { continue }
+    try {
+      & $cmd.Source -c "import sys; print(sys.version)" 1>$null 2>$null
+      if ($LASTEXITCODE -eq 0) { $pyPath = $cmd.Source; break }
+    } catch {}
+  }
   $py = Join-Path $RepoRoot "scripts\memory\query-memory-sqlite.py"
-  if ($null -ne $python -and (Test-Path $SqlitePath) -and (Test-Path $py)) {
+  if ($null -ne $pyPath -and (Test-Path $SqlitePath) -and (Test-Path $py)) {
     Write-Host "Using SQLite FTS search..." -ForegroundColor Cyan
-    & $python.Source $py --repo $RepoRoot --q $Query --area $Area --format $Format
+    & $pyPath $py --repo $RepoRoot --q $Query --area $Area --format $Format
     exit $LASTEXITCODE
   }
   Write-Host "SQLite mode unavailable (need python + memory.sqlite + query-memory-sqlite.py). Falling back to grep." -ForegroundColor DarkYellow
@@ -2348,7 +2380,21 @@ If vector search is unavailable, keep using:
   }
   $mcpRoot["mcpServers"] = $servers
   $mcpJson = $mcpRoot | ConvertTo-Json -Depth 15
-  [System.IO.File]::WriteAllText($mcpPath, $mcpJson, (New-Object System.Text.UTF8Encoding $false))
+
+  if ($DryRun) {
+    Write-Host "[DRY RUN] WOULD WRITE: $mcpPath" -ForegroundColor DarkCyan
+  } else {
+    # Backup existing mcp.json before overwriting
+    if (Test-Path $mcpPath) {
+      $backupPath = "$mcpPath.bak"
+      Copy-Item -Path $mcpPath -Destination $backupPath -Force
+    }
+    # Atomic write via temp file
+    $mcpTmp = "$mcpPath.tmp"
+    [System.IO.File]::WriteAllText($mcpTmp, $mcpJson, (New-Object System.Text.UTF8Encoding $false))
+    Move-Item -Path $mcpTmp -Destination $mcpPath -Force
+    Write-Host "WROTE: $mcpPath" -ForegroundColor Green
+  }
 }
 
 # -------------------------
@@ -2357,14 +2403,14 @@ If vector search is unavailable, keep using:
 
 $hookBody = @'
 #!/bin/sh
-# Cursor Memory: auto-rebuild indexes + lint before commit
+# Mnemo: auto-rebuild indexes + lint before commit
 
 set -e
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-echo "[CursorMemory] Rebuilding indexes..."
+echo "[Mnemo] Rebuilding indexes + lint..."
 if command -v powershell.exe >/dev/null 2>&1; then
   powershell.exe -ExecutionPolicy Bypass -File "./scripts/memory/rebuild-memory-index.ps1"
   powershell.exe -ExecutionPolicy Bypass -File "./scripts/memory/lint-memory.ps1"
@@ -2393,7 +2439,7 @@ if (Test-Path $GitHooksDir) {
   $legacyHookPath = Join-Path $GitHooksDir "pre-commit"
   if ((Test-Path $legacyHookPath) -and (-not $Force)) {
     $existing = Get-Content -Raw -ErrorAction SilentlyContinue $legacyHookPath
-    if ($existing -match "Cursor Memory: auto-rebuild") {
+    if ($existing -match "Mnemo: auto-rebuild" -or $existing -match "Cursor Memory: auto-rebuild") {
       Write-Host "SKIP (exists): $legacyHookPath" -ForegroundColor DarkYellow
     } else {
       # append safely
@@ -2499,9 +2545,11 @@ if ($totalChars -gt 8000) {
   Write-Host "Always-read layer: $totalChars chars (~$estimatedTokens tokens) - Healthy" -ForegroundColor Green
 }
 
-# Auto-add memory artifacts to .gitignore (BOM-safe, preserves line endings)
+# Auto-add memory artifacts to .gitignore (BOM-safe, marker-based, idempotent)
 $giPath = Join-Path $RepoRoot ".gitignore"
-$giHeader = "# Cursor Memory System (generated)"
+$giBeginMarker = "# >>> Mnemo (generated) - do not edit this block manually <<<"
+$giEndMarker   = "# <<< Mnemo (generated) >>>"
+
 $ignoreLines = @(".cursor/memory/memory.sqlite")
 if ($EnableVector) {
   $ignoreLines += @(
@@ -2517,34 +2565,48 @@ $giLineEndings = "CRLF"
 $giContent = ""
 if (Test-Path $giPath) {
   $giContent = Get-Content -Raw -Encoding UTF8 -ErrorAction SilentlyContinue $giPath
+  if ($null -eq $giContent) { $giContent = "" }
   if ($giContent.Length -gt 0 -and [int]$giContent[0] -eq 0xFEFF) { $giContent = $giContent.Substring(1) }
   $giLineEndings = if ($giContent -match "`r`n") { "CRLF" } else { "LF" }
 }
 
-$missing = @()
-foreach ($line in $ignoreLines) {
-  if ($giContent -notmatch [regex]::Escape($line)) {
-    $missing += $line
-  }
-}
+# Build the managed block
+$newBlock = $giBeginMarker + "`n" + ($ignoreLines -join "`n") + "`n" + $giEndMarker
 
-if ($missing.Count -gt 0) {
-  $block = $giHeader + "`n" + ($missing -join "`n")
-  if (Test-Path $giPath) {
-    $trimmed = $giContent.TrimEnd("`r","`n")
-    $newContent = $trimmed + "`n`n" + $block.Trim() + "`n"
-    Write-TextFile $giPath $newContent -ForceWrite:$true -LineEndings $giLineEndings
-  } else {
-    $newContent = $block.Trim() + "`n"
-    Write-TextFile $giPath $newContent -ForceWrite:$true -LineEndings "CRLF"
-  }
-  Write-Host "Updated .gitignore with memory artifacts." -ForegroundColor Green
+if ($DryRun) {
+  Write-Host "[DRY RUN] WOULD UPDATE: $giPath (managed Mnemo block)" -ForegroundColor DarkCyan
 } else {
-  Write-Host "SKIP (.gitignore already contains memory artifacts)." -ForegroundColor DarkYellow
+  # Replace existing managed block, or append it
+  $beginEsc = [regex]::Escape($giBeginMarker)
+  $endEsc   = [regex]::Escape($giEndMarker)
+  $blockPattern = "(?s)$beginEsc.*?$endEsc"
+
+  if ($giContent -match $blockPattern) {
+    $newContent = [regex]::Replace($giContent, $blockPattern, $newBlock.Replace('$', '$$'))
+    # Compare after normalizing line endings so CRLF vs LF differences don't force a write
+    $existingNorm = $giContent -replace "`r?`n", "`n"
+    $newNorm      = $newContent -replace "`r?`n", "`n"
+    if ($newNorm -ne $existingNorm) {
+      $enc = New-Object System.Text.UTF8Encoding($false)
+      $normalized = if ($giLineEndings -eq "CRLF") { $newContent -replace "`r?`n", "`r`n" } else { $newContent -replace "`r?`n", "`n" }
+      [System.IO.File]::WriteAllText($giPath, $normalized, $enc)
+      Write-Host "WROTE: $giPath (updated Mnemo managed block)" -ForegroundColor Green
+    } else {
+      Write-Host "SKIP (exists): $giPath (Mnemo managed block unchanged)" -ForegroundColor DarkYellow
+    }
+  } else {
+    $trimmed = $giContent.TrimEnd("`r", "`n")
+    $sep = if ($trimmed.Length -gt 0) { "`n`n" } else { "" }
+    $newContent = $trimmed + $sep + $newBlock + "`n"
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    $normalized = if ($giLineEndings -eq "CRLF") { $newContent -replace "`r?`n", "`r`n" } else { $newContent -replace "`r?`n", "`n" }
+    [System.IO.File]::WriteAllText($giPath, $normalized, $enc)
+    Write-Host "WROTE: $giPath (added Mnemo managed block)" -ForegroundColor Green
+  }
 }
 
 Write-Host ""
-Write-Host "Setup complete. (Memory System v3.2.2)" -ForegroundColor Green
+Write-Host "Setup complete. (Mnemo v$MnemoVersion)" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1) Run: powershell -ExecutionPolicy Bypass -File scripts/memory/rebuild-memory-index.ps1" -ForegroundColor White

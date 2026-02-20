@@ -4,6 +4,9 @@
 
 # Mnemo
 
+[![CI](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml/badge.svg)](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/DiNaSoR/Mnemo)](LICENSE)
+
 Windows-first, token-safe **repo memory system** for AI coding agents.
 
 > **Works with:** Cursor • Claude Code • Gemini Antigravity • OpenAI Codex • Windsurf • and more
@@ -245,6 +248,10 @@ Point your agent's memory/context configuration to `.cursor/memory/`. The markdo
   - API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`)
   - Installer auto-installs: `openai`, `sqlite-vec`, `mcp[cli]>=1.2.0,<2.0` (+ `google-genai` for Gemini)
 
+### Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and feature requests use the issue templates in [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/). Security issues go to [SECURITY.md](SECURITY.md).
+
 ### License
 
-See `LICENSE`.
+See [LICENSE](LICENSE).

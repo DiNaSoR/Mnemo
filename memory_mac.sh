@@ -6,6 +6,7 @@
 #   sh ./memory_mac.sh
 #   sh ./memory_mac.sh --project-name "MyProject"
 #   sh ./memory_mac.sh --force
+#   sh ./memory_mac.sh --dry-run
 #   sh ./memory_mac.sh --enable-vector
 #   sh ./memory_mac.sh --enable-vector --vector-provider gemini
 #
@@ -18,6 +19,7 @@ set -eu
 REPO_ROOT="$(pwd)"
 PROJECT_NAME=""
 FORCE="0"
+DRY_RUN="0"
 ENABLE_VECTOR="0"
 VECTOR_PROVIDER="openai"
 
@@ -29,18 +31,24 @@ while [ $# -gt 0 ]; do
       PROJECT_NAME="$2"; shift 2;;
     --force)
       FORCE="1"; shift 1;;
+    --dry-run)
+      DRY_RUN="1"; shift 1;;
     --enable-vector)
       ENABLE_VECTOR="1"; shift 1;;
     --vector-provider)
       VECTOR_PROVIDER="$2"; shift 2;;
     -h|--help)
-      echo "Usage: sh ./memory_mac.sh [--repo-root PATH] [--project-name NAME] [--force] [--enable-vector] [--vector-provider openai|gemini]"
+      echo "Usage: sh ./memory_mac.sh [--repo-root PATH] [--project-name NAME] [--force] [--dry-run] [--enable-vector] [--vector-provider openai|gemini]"
       exit 0;;
     *)
       echo "Unknown arg: $1" >&2
       exit 2;;
   esac
 done
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "[DRY RUN] No files will be written. Showing what would happen."
+fi
 
 if [ "$VECTOR_PROVIDER" != "openai" ] && [ "$VECTOR_PROVIDER" != "gemini" ]; then
   echo "Invalid --vector-provider: $VECTOR_PROVIDER (expected openai or gemini)" >&2
@@ -49,6 +57,13 @@ fi
 
 if [ -z "$PROJECT_NAME" ]; then
   PROJECT_NAME="$(basename "$REPO_ROOT")"
+fi
+
+# Read version from VERSION file at installer location (single source of truth)
+_INSTALLER_DIR="$(cd "$(dirname "$0")" && pwd)"
+MNEMO_VERSION="0.0.0"
+if [ -f "$_INSTALLER_DIR/VERSION" ]; then
+  MNEMO_VERSION="$(cat "$_INSTALLER_DIR/VERSION" | tr -d '[:space:]')"
 fi
 
 MONTH="$(date +%Y-%m)"
@@ -73,8 +88,17 @@ write_file() {
   path="$1"
   if [ -f "$path" ] && [ "$FORCE" != "1" ]; then
     printf '%s\n' "SKIP (exists): $path"
+    # Still consume stdin to avoid broken pipe
+    cat > /dev/null
     return 0
   fi
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "[DRY RUN] WOULD WRITE: $path"
+    cat > /dev/null
+    return 0
+  fi
+  dir="$(dirname "$path")"
+  [ -d "$dir" ] || mkdir -p "$dir"
   tmp="${path}.tmp.$$"
   cat > "$tmp"
   mv "$tmp" "$path"
@@ -210,7 +234,7 @@ write_file "$JOURNAL_DIR/$MONTH.md" <<EOF
 
 ## $TODAY
 
-- [Process] Initialized memory system (Mnemo shell installer)
+- [Process] Initialized memory system (Mnemo v$MNEMO_VERSION)
   - Why: token-safe AI memory + indexed retrieval + portable hooks
   - Key files:
     - \`.cursor/memory/*\`
@@ -342,9 +366,9 @@ EOF
 # Cursor rule (Cursor will pick this up; other agents can still read .cursor/memory)
 # -------------------------
 
-write_file "$RULES_DIR/00-memory-system.mdc" <<'EOF'
+write_file "$RULES_DIR/00-memory-system.mdc" <<EOF
 ---
-description: Mnemo Memory System - Authority + Atomic Retrieval + Token Safety
+description: Mnemo Memory System v$MNEMO_VERSION - Authority + Atomic Retrieval + Token Safety
 globs:
   - "**/*"
 alwaysApply: true
@@ -1958,7 +1982,15 @@ servers["MnemoVector"] = {
     "env": env,
 }
 root["mcpServers"] = servers
-mcp_path.write_text(json.dumps(root, indent=2), encoding="utf-8")
+new_content = json.dumps(root, indent=2)
+# Backup existing file before overwriting
+if mcp_path.exists():
+    import shutil
+    shutil.copy2(str(mcp_path), str(mcp_path) + ".bak")
+# Atomic write via temp file
+tmp = str(mcp_path) + ".tmp"
+Path(tmp).write_text(new_content, encoding="utf-8")
+Path(tmp).replace(mcp_path)
 PY
 
   post_hook="$GITHOOKS_DIR/post-commit"
@@ -2017,8 +2049,11 @@ EOF
   fi
 fi
 
-# Update .gitignore with memory artifacts (best-effort)
+# Update .gitignore with memory artifacts (marker-based, idempotent)
 gi="$REPO_ROOT/.gitignore"
+GI_BEGIN="# >>> Mnemo (generated) - do not edit this block manually <<<"
+GI_END="# <<< Mnemo (generated) >>>"
+
 ignore_lines=".cursor/memory/memory.sqlite"
 if [ "$ENABLE_VECTOR" = "1" ]; then
   ignore_lines="$ignore_lines
@@ -2029,31 +2064,39 @@ if [ "$ENABLE_VECTOR" = "1" ]; then
 .cursor/memory/.sync.lock"
 fi
 
-if [ ! -f "$gi" ]; then
-  {
-    echo "# Cursor Memory System (generated)"
-    printf "%s\n" "$ignore_lines"
-  } >"$gi"
-  echo "Created .gitignore with memory artifacts"
+if [ "$DRY_RUN" = "1" ]; then
+  echo "[DRY RUN] WOULD UPDATE: $gi (managed Mnemo block)"
 else
-  added="0"
-  echo "$ignore_lines" | while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    if ! grep -Fq "$line" "$gi"; then
-      if [ "$added" = "0" ]; then
-        printf "\n# Cursor Memory System (generated)\n" >>"$gi"
-        added="1"
-      fi
-      printf "%s\n" "$line" >>"$gi"
-    fi
-  done
-  echo "Updated .gitignore with memory artifacts"
+  new_block="$GI_BEGIN
+$ignore_lines
+$GI_END"
+
+  if [ ! -f "$gi" ]; then
+    printf "%s\n" "$new_block" >"$gi"
+    echo "Created .gitignore with Mnemo managed block"
+  elif grep -qF "$GI_BEGIN" "$gi" 2>/dev/null; then
+    # Replace existing managed block using awk (POSIX, no temp file race)
+    awk -v begin="$GI_BEGIN" -v block="$new_block" '
+      BEGIN { skipping=0; done=0 }
+      $0 == begin { skipping=1 }
+      skipping && /^# <<< Mnemo \(generated\) >>>/ {
+        skipping=0
+        if (!done) { print block; done=1 }
+        next
+      }
+      !skipping { print }
+    ' "$gi" > "$gi.tmp.$$" && mv "$gi.tmp.$$" "$gi"
+    echo "Updated .gitignore managed block"
+  else
+    printf "\n%s\n" "$new_block" >> "$gi"
+    echo "Added Mnemo managed block to .gitignore"
+  fi
 fi
 
 chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" "$GITHOOKS_DIR/post-commit" 2>/dev/null || true
 
 echo ""
-echo "Setup complete (Mnemo macOS shell installer)."
+echo "Setup complete. (Mnemo v$MNEMO_VERSION)"
 echo "Next:"
 echo "  sh ./scripts/memory/rebuild-memory-index.sh"
 echo "  sh ./scripts/memory/lint-memory.sh"

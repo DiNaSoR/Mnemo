@@ -1,0 +1,98 @@
+name: Bug report
+description: Report a problem with the Mnemo installer or helper scripts
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in all sections to help us investigate quickly.
+
+  - type: input
+    id: version
+    attributes:
+      label: Mnemo version
+      description: Contents of the `VERSION` file at repo root, or the version printed at the end of the installer run.
+      placeholder: "e.g. 3.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - macOS 12 (Monterey)
+        - macOS 13 (Ventura)
+        - macOS 14 (Sonoma)
+        - macOS 15 (Sequoia)
+        - Ubuntu / Debian
+        - Other Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: shell
+    attributes:
+      label: Shell / PowerShell version
+      description: "`$PSVersionTable.PSVersion` (PowerShell) or `bash --version` / `sh --version`"
+      placeholder: "e.g. PowerShell 5.1.26100 / bash 5.2.26"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installer
+    attributes:
+      label: Which installer are you using?
+      options:
+        - memory.ps1 (Windows)
+        - memory_mac.sh (macOS / Linux)
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "Describe what went wrong..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: "Describe the expected behavior..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Run `powershell -ExecutionPolicy Bypass -File .\memory.ps1`
+        2. Then run `...`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full console output
+      description: Paste the complete terminal output (wrap in code blocks if needed).
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — relevant flags used, Python version, existing `.cursor/mcp.json`, etc.

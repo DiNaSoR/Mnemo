@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a new capability or improvement for Mnemo
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement! Describe the problem you want solved — not just the implementation. Please search existing issues first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that Mnemo doesn't support well today?
+      placeholder: "When I do X, I have to manually Y every time, which is tedious because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the change or feature you'd like to see.
+      placeholder: "Add a --flag that does..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you found any workarounds or alternative approaches?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of Mnemo does this affect?
+      options:
+        - Windows installer (memory.ps1)
+        - macOS/Linux installer (memory_mac.sh)
+        - Both installers
+        - Helper scripts (scripts/memory/)
+        - Vector layer (mnemo_vector.py)
+        - Documentation
+        - CI / release tooling
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to submit a PR for this feature

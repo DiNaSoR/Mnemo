@@ -1,0 +1,16 @@
+# CODEOWNERS
+# These users are automatically requested for review when a PR modifies the listed paths.
+# Syntax: <path_pattern> @<user_or_team>
+
+# Default owner for everything
+* @DiNaSoR
+
+# Core installers — always require maintainer review
+memory.ps1 @DiNaSoR
+memory_mac.sh @DiNaSoR
+
+# CI / release workflows
+.github/workflows/ @DiNaSoR
+
+# Security policy
+SECURITY.md @DiNaSoR

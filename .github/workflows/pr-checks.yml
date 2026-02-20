@@ -1,0 +1,107 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog-check:
+    name: Changelog / version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch enough history to diff against base branch
+          fetch-depth: 0
+
+      - name: Verify VERSION is valid semver
+        run: |
+          version="$(cat VERSION | tr -d '[:space:]')"
+          echo "VERSION = $version"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: VERSION file does not contain a valid semver string (got: '$version')"
+            exit 1
+          fi
+
+      - name: Check installer parity (both files changed together)
+        id: parity
+        run: |
+          # If either installer is changed, both should be (or the change is explicitly platform-specific).
+          ps1_changed=0
+          sh_changed=0
+          git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^memory\.ps1$' && ps1_changed=1 || true
+          git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^memory_mac\.sh$' && sh_changed=1 || true
+
+          if [ "$ps1_changed" -eq 1 ] && [ "$sh_changed" -eq 0 ]; then
+            echo "WARNING: memory.ps1 changed but memory_mac.sh was not updated."
+            echo "If this is intentional (Windows-only change), add the label 'platform-specific' to suppress this warning."
+          fi
+          if [ "$sh_changed" -eq 1 ] && [ "$ps1_changed" -eq 0 ]; then
+            echo "WARNING: memory_mac.sh changed but memory.ps1 was not updated."
+            echo "If this is intentional (macOS-only change), add the label 'platform-specific' to suppress this warning."
+          fi
+          # Non-blocking: just a warning, not a failure
+          exit 0
+
+      - name: Verify CHANGELOG updated when installers change
+        run: |
+          installer_changed=0
+          git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qE '^(memory\.ps1|memory_mac\.sh|VERSION)$' && installer_changed=1 || true
+
+          if [ "$installer_changed" -eq 1 ]; then
+            changelog_changed=0
+            git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^CHANGELOG\.md$' && changelog_changed=1 || true
+            if [ "$changelog_changed" -eq 0 ]; then
+              echo "ERROR: Installer or VERSION changed but CHANGELOG.md was not updated."
+              echo "Add an entry under ## [Unreleased] in CHANGELOG.md."
+              exit 1
+            fi
+          fi
+
+  shellcheck:
+    name: ShellCheck (memory_mac.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "."
+          additional_files: "memory_mac.sh tests/test-installer.sh"
+          severity: warning
+        continue-on-error: true
+
+  powershell-syntax:
+    name: PowerShell syntax check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check memory.ps1 syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\memory.ps1).Path, [ref]$null, [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host "  SYNTAX ERROR: $_" -ForegroundColor Red }
+            exit 1
+          }
+          Write-Host "memory.ps1 syntax OK" -ForegroundColor Green
+
+      - name: Check test-installer.ps1 syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\tests\test-installer.ps1).Path, [ref]$null, [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host "  SYNTAX ERROR: $_" -ForegroundColor Red }
+            exit 1
+          }
+          Write-Host "tests/test-installer.ps1 syntax OK" -ForegroundColor Green
