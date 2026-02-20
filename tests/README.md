@@ -30,8 +30,10 @@ sh ./tests/test-installer.sh malformed-mcp-json
 |-----------|-----------------|
 | `scratch` | Fresh install produces all expected directories and files |
 | `idempotent-no-force` | Re-run without `--force` skips all existing files |
+| `idempotent-vector-no-force` | Re-run with vector mode without `--force` does not rewrite unchanged vector artifacts |
 | `idempotent-force` | Re-run with `--force` overwrites all files |
 | `dry-run` | `--dry-run` produces no files on disk |
+| `dry-run-vector` | `--dry-run` with vector mode performs no writes or dependency installs |
 | `path-with-spaces` | Installer works when repo path contains spaces |
 | `malformed-mcp-json` | Installer recovers gracefully from corrupt `.cursor/mcp.json` |
 | `missing-python` | SQLite build skipped gracefully when Python is absent (mock) |

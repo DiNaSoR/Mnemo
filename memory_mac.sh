@@ -378,31 +378,31 @@ alwaysApply: true
 
 ## Authority Order (highest to lowest)
 1) Lessons override EVERYTHING (including active-context)
-2) `active-context.md` overrides memo/journal (but NOT lessons)
-3) `memo.md` is long-term project truth
+2) active-context.md overrides memo/journal (but NOT lessons)
+3) memo.md is long-term project truth
 4) Journal is history
 
 ## Token-Safe Retrieval
 
 ALWAYS READ (in order):
-1. `.cursor/memory/hot-rules.md`
-2. `.cursor/memory/active-context.md`
-3. `.cursor/memory/memo.md`
+1. .cursor/memory/hot-rules.md
+2. .cursor/memory/active-context.md
+3. .cursor/memory/memo.md
 
 SEARCH FIRST, THEN FETCH:
-4. `.cursor/memory/lessons/index.md` -> find relevant lesson ID
-5. `.cursor/memory/lessons/L-XXX-title.md` -> load ONLY the specific file
-6. `.cursor/memory/digests/YYYY-MM.digest.md` -> before raw journal
-7. `.cursor/memory/journal/YYYY-MM.md` -> only for archaeology
+4. .cursor/memory/lessons/index.md -> find relevant lesson ID
+5. .cursor/memory/lessons/L-XXX-title.md -> load ONLY the specific file
+6. .cursor/memory/digests/YYYY-MM.digest.md -> before raw journal
+7. .cursor/memory/journal/YYYY-MM.md -> only for archaeology
 
 ## Helper Scripts (macOS)
 
-- Add lesson: `scripts/memory/add-lesson.sh --title "..." --tags "..." --rule "..."`
-- Add journal: `scripts/memory/add-journal-entry.sh --tags "..." --title "..."`
-- Rebuild: `scripts/memory/rebuild-memory-index.sh`
-- Lint: `scripts/memory/lint-memory.sh`
-- Query: `scripts/memory/query-memory.sh --query "..."`
-- Clear: `scripts/memory/clear-active.sh`
+- Add lesson: scripts/memory/add-lesson.sh --title "..." --tags "..." --rule "..."
+- Add journal: scripts/memory/add-journal-entry.sh --tags "..." --title "..."
+- Rebuild: scripts/memory/rebuild-memory-index.sh
+- Lint: scripts/memory/lint-memory.sh
+- Query: scripts/memory/query-memory.sh --query "..."
+- Clear: scripts/memory/clear-active.sh
 EOF
 
 # -------------------------
@@ -1605,34 +1605,57 @@ EOF
 if [ "$ENABLE_VECTOR" = "1" ]; then
   echo "Vector mode enabled (provider: $VECTOR_PROVIDER)"
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "Vector mode requires python3 (3.10+)." >&2
-    exit 1
-  fi
-
-  if ! python3 -m pip --version >/dev/null 2>&1; then
-    echo "python3 pip is unavailable in this environment." >&2
-    echo "Install Homebrew Python (brew install python) or use a virtualenv." >&2
-    exit 1
-  fi
-
-  pip_err="${TMPDIR:-/tmp}/mnemo-vector-pip.$$"
-  pkgs="openai sqlite-vec mcp[cli]>=1.2.0,<2.0"
-  if [ "$VECTOR_PROVIDER" = "gemini" ]; then
-    pkgs="$pkgs google-genai"
-  fi
-
-  # shellcheck disable=SC2086
-  if ! python3 -m pip install --quiet $pkgs 2>"$pip_err"; then
-    if grep -Ei "externally managed|externally-managed" "$pip_err" >/dev/null 2>&1; then
-      echo "Python is externally managed (PEP668)." >&2
-      echo "Use Homebrew Python or a venv, then re-run with --enable-vector." >&2
+  if [ "$DRY_RUN" != "1" ]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "Vector mode requires python3 (3.10+)." >&2
+      exit 1
     fi
-    cat "$pip_err" >&2 || true
-    rm -f "$pip_err"
-    exit 1
+
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+      echo "python3 pip is unavailable in this environment." >&2
+      echo "Install Homebrew Python (brew install python) or use a virtualenv." >&2
+      exit 1
+    fi
+
+    need_pip_install="1"
+    if [ "$FORCE" != "1" ] && python3 - "$VECTOR_PROVIDER" <<'PY' >/dev/null 2>&1; then
+import importlib.util
+import sys
+
+provider = sys.argv[1]
+mods = ["openai", "sqlite_vec", "mcp"]
+if provider == "gemini":
+    mods.append("google.genai")
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+raise SystemExit(0 if not missing else 1)
+PY
+      need_pip_install="0"
+    fi
+
+    if [ "$need_pip_install" = "1" ]; then
+      pip_err="${TMPDIR:-/tmp}/mnemo-vector-pip.$$"
+      pkgs="openai sqlite-vec mcp[cli]>=1.2.0,<2.0"
+      if [ "$VECTOR_PROVIDER" = "gemini" ]; then
+        pkgs="$pkgs google-genai"
+      fi
+
+      # shellcheck disable=SC2086
+      if ! python3 -m pip install --quiet $pkgs 2>"$pip_err"; then
+        if grep -Ei "externally managed|externally-managed" "$pip_err" >/dev/null 2>&1; then
+          echo "Python is externally managed (PEP668)." >&2
+          echo "Use Homebrew Python or a venv, then re-run with --enable-vector." >&2
+        fi
+        cat "$pip_err" >&2 || true
+        rm -f "$pip_err"
+        exit 1
+      fi
+      rm -f "$pip_err"
+    else
+      echo "SKIP (deps installed): vector dependency install"
+    fi
+  else
+    echo "[DRY RUN] Skipping vector dependency checks/install."
   fi
-  rm -f "$pip_err"
 
   write_file "$MEM_SCRIPTS_DIR/mnemo_vector.py" <<'EOF'
 #!/usr/bin/env python3
@@ -1949,22 +1972,27 @@ If vector search is unavailable, keep using:
 - `scripts/memory/query-memory.sh --query "..." --use-sqlite`
 EOF
 
-  python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" <<'PY'
+  if [ "$DRY_RUN" != "1" ]; then
+  mcp_status="$(python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" "$FORCE" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 repo = Path(sys.argv[1])
 provider = sys.argv[2]
+force = sys.argv[3] == "1"
 mcp_path = repo / ".cursor" / "mcp.json"
 engine = str((repo / "scripts" / "memory" / "mnemo_vector.py").resolve())
 
 root = {}
+existing_root = None
 if mcp_path.exists():
     try:
-        root = json.loads(mcp_path.read_text(encoding="utf-8"))
+        existing_root = json.loads(mcp_path.read_text(encoding="utf-8"))
+        root = dict(existing_root) if isinstance(existing_root, dict) else {}
     except Exception:
         root = {}
+        existing_root = None
 
 servers = root.get("mcpServers") if isinstance(root, dict) else {}
 if not isinstance(servers, dict):
@@ -1982,31 +2010,40 @@ servers["MnemoVector"] = {
     "env": env,
 }
 root["mcpServers"] = servers
+if (not force) and isinstance(existing_root, dict) and existing_root == root:
+    print("UNCHANGED")
+    raise SystemExit(0)
 new_content = json.dumps(root, indent=2)
-# Backup existing file before overwriting
 if mcp_path.exists():
     import shutil
     shutil.copy2(str(mcp_path), str(mcp_path) + ".bak")
-# Atomic write via temp file
 tmp = str(mcp_path) + ".tmp"
 Path(tmp).write_text(new_content, encoding="utf-8")
 Path(tmp).replace(mcp_path)
+print("UPDATED")
 PY
+)"
+    if [ "$mcp_status" = "UNCHANGED" ]; then
+      echo "SKIP (exists): $CURSOR_DIR/mcp.json (MnemoVector MCP unchanged)"
+    else
+      echo "WROTE: $CURSOR_DIR/mcp.json"
+    fi
 
-  post_hook="$GITHOOKS_DIR/post-commit"
-  backup_hook="$GITHOOKS_DIR/post-commit.before-mnemo-vector"
-  marker="Mnemo Vector Hook Wrapper"
-  if [ -f "$post_hook" ] && ! grep -Fq "$marker" "$post_hook" 2>/dev/null; then
-    cp "$post_hook" "$backup_hook" 2>/dev/null || true
-  fi
+    post_hook="$GITHOOKS_DIR/post-commit"
+    backup_hook="$GITHOOKS_DIR/post-commit.before-mnemo-vector"
+    marker="Mnemo Vector Hook Wrapper"
+    if [ -f "$post_hook" ] && ! grep -Fq "$marker" "$post_hook" 2>/dev/null; then
+      cp "$post_hook" "$backup_hook" 2>/dev/null || true
+    fi
 
-  if [ "$VECTOR_PROVIDER" = "gemini" ]; then
-    api_guard='[ -z "${GEMINI_API_KEY:-}" ] && exit 0'
-  else
-    api_guard='[ -z "${OPENAI_API_KEY:-}" ] && exit 0'
-  fi
+    if [ "$VECTOR_PROVIDER" = "gemini" ]; then
+      api_guard='[ -z "${GEMINI_API_KEY:-}" ] && exit 0'
+    else
+      api_guard='[ -z "${OPENAI_API_KEY:-}" ] && exit 0'
+    fi
 
-  cat >"$post_hook" <<EOF
+    post_tmp="${TMPDIR:-/tmp}/mnemo-post-hook.$$"
+    cat >"$post_tmp" <<EOF
 #!/bin/sh
 # Mnemo Vector Hook Wrapper
 set -e
@@ -2037,15 +2074,29 @@ fi
 
 exit 0
 EOF
-  chmod +x "$post_hook" 2>/dev/null || true
-
-  if [ -d "$REPO_ROOT/.git/hooks" ]; then
-    legacy_post="$REPO_ROOT/.git/hooks/post-commit"
-    if [ -f "$legacy_post" ] && [ "$FORCE" != "1" ] && ! grep -Fq "$marker" "$legacy_post" 2>/dev/null; then
-      echo "SKIP (legacy post-commit exists): $legacy_post"
+    if [ -f "$post_hook" ] && [ "$FORCE" != "1" ] && cmp -s "$post_hook" "$post_tmp" 2>/dev/null; then
+      echo "SKIP (exists): $post_hook"
     else
-      cp "$post_hook" "$legacy_post" 2>/dev/null || true
+      cp "$post_tmp" "$post_hook" 2>/dev/null || cat "$post_tmp" >"$post_hook"
+      chmod +x "$post_hook" 2>/dev/null || true
+      echo "WROTE: $post_hook"
     fi
+    rm -f "$post_tmp"
+
+    if [ -d "$REPO_ROOT/.git/hooks" ]; then
+      legacy_post="$REPO_ROOT/.git/hooks/post-commit"
+      if [ -f "$legacy_post" ] && [ "$FORCE" != "1" ] && ! grep -Fq "$marker" "$legacy_post" 2>/dev/null; then
+        echo "SKIP (legacy post-commit exists): $legacy_post"
+      elif [ -f "$legacy_post" ] && [ "$FORCE" != "1" ] && cmp -s "$post_hook" "$legacy_post" 2>/dev/null; then
+        echo "SKIP (exists): $legacy_post"
+      else
+        cp "$post_hook" "$legacy_post" 2>/dev/null || true
+        echo "WROTE: $legacy_post"
+      fi
+    fi
+  else
+    echo "[DRY RUN] WOULD WRITE: $CURSOR_DIR/mcp.json"
+    echo "[DRY RUN] WOULD CONFIGURE: $GITHOOKS_DIR/post-commit (MnemoVector wrapper)"
   fi
 fi
 
@@ -2101,10 +2152,14 @@ echo "Next:"
 echo "  sh ./scripts/memory/rebuild-memory-index.sh"
 echo "  sh ./scripts/memory/lint-memory.sh"
 echo "  git config core.hooksPath .githooks"
-if [ "$ENABLE_VECTOR" = "1" ]; then
+if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
   echo "  restart Cursor, then run: vector_health and vector_sync"
   echo ""
   echo "Vector tools enabled: vector_search, vector_sync, vector_forget, vector_health"
   echo "Important: post-commit uses shell env vars (export OPENAI_API_KEY/GEMINI_API_KEY)."
+elif [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" = "1" ]; then
+  echo "  (dry run) vector setup preview only; no MCP/hooks changed"
+  echo ""
+  echo "Vector tools previewed (dry run): no dependencies installed and no MCP/hooks were modified."
 fi
 

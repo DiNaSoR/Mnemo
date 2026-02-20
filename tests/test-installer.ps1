@@ -104,6 +104,22 @@ if (ShouldRun "idempotent-no-force") {
   } finally { Remove-TestDir $dest }
 }
 
+# ─── TEST: idempotent-vector-no-force ─────────────────────────────────────────
+if (ShouldRun "idempotent-vector-no-force") {
+  $dest = New-TestDir
+  try {
+    $r1 = Run-Installer $dest @("-EnableVector")
+    $r2 = Run-Installer $dest @("-EnableVector")
+    if ($r1.ExitCode -ne 0 -or $r2.ExitCode -ne 0) {
+      Write-Fail "idempotent-vector-no-force" "Vector installer run failed (exit1=$($r1.ExitCode), exit2=$($r2.ExitCode))"
+    } elseif ($r2.Output -match "(?m)^WROTE:") {
+      Write-Fail "idempotent-vector-no-force" "Vector installer wrote files on second run without -Force"
+    } else {
+      Write-Pass "idempotent-vector-no-force"
+    }
+  } finally { Remove-TestDir $dest }
+}
+
 # ─── TEST: idempotent-force ───────────────────────────────────────────────────
 if (ShouldRun "idempotent-force") {
   $dest = New-TestDir
@@ -128,6 +144,24 @@ if (ShouldRun "dry-run") {
       Write-Fail "dry-run" "Dry-run created $($files.Count) file(s): $($files.Name -join ', ')"
     } else {
       Write-Pass "dry-run"
+    }
+  } finally { Remove-TestDir $dest }
+}
+
+# ─── TEST: dry-run-vector ─────────────────────────────────────────────────────
+if (ShouldRun "dry-run-vector") {
+  $dest = New-TestDir
+  try {
+    $r = Run-Installer $dest @("-DryRun", "-EnableVector")
+    $files = Get-ChildItem -Recurse -File $dest -ErrorAction SilentlyContinue
+    if ($r.ExitCode -ne 0) {
+      Write-Fail "dry-run-vector" "Installer exited with code $($r.ExitCode)"
+    } elseif ($r.Output -match "Installing vector dependencies") {
+      Write-Fail "dry-run-vector" "Dry-run unexpectedly attempted vector dependency installation"
+    } elseif ($files) {
+      Write-Fail "dry-run-vector" "Dry-run with vector created $($files.Count) file(s): $($files.Name -join ', ')"
+    } else {
+      Write-Pass "dry-run-vector"
     }
   } finally { Remove-TestDir $dest }
 }

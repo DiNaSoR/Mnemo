@@ -68,6 +68,26 @@ if should_run idempotent-no-force; then
   rm -rf "$dest"
 fi
 
+# ─── TEST: idempotent-vector-no-force ─────────────────────────────────────────
+if should_run idempotent-vector-no-force; then
+  dest="$(make_dest)"
+  mkdir -p "$dest"
+  if ! command -v python3 >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
+    skip_test idempotent-vector-no-force "python3/pip unavailable for vector mode"
+  else
+    run_installer "$dest" --enable-vector >/dev/null
+    out="$(run_installer "$dest" --enable-vector)"
+    if ! echo "$out" | grep -q "Setup complete"; then
+      fail idempotent-vector-no-force "Second vector run did not complete successfully"
+    elif echo "$out" | grep -q "^WROTE:"; then
+      fail idempotent-vector-no-force "Vector installer wrote files on second run without --force"
+    else
+      pass idempotent-vector-no-force
+    fi
+  fi
+  rm -rf "$dest"
+fi
+
 # ─── TEST: idempotent-force ───────────────────────────────────────────────────
 if should_run idempotent-force; then
   dest="$(make_dest)"
@@ -92,6 +112,24 @@ if should_run dry-run; then
     fail dry-run "Dry-run created $count file(s)"
   else
     pass dry-run
+  fi
+  rm -rf "$dest"
+fi
+
+# ─── TEST: dry-run-vector ─────────────────────────────────────────────────────
+if should_run dry-run-vector; then
+  dest="$(make_dest)"
+  mkdir -p "$dest"
+  out="$(run_installer "$dest" --dry-run --enable-vector)"
+  count="$(find "$dest" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$count" -gt 0 ]; then
+    fail dry-run-vector "Dry-run with vector created $count file(s)"
+  elif echo "$out" | grep -q "Installing vector dependencies"; then
+    fail dry-run-vector "Dry-run unexpectedly attempted vector dependency installation"
+  elif ! echo "$out" | grep -q "Setup complete"; then
+    fail dry-run-vector "Installer did not complete successfully in dry-run vector mode"
+  else
+    pass dry-run-vector
   fi
   rm -rf "$dest"
 fi

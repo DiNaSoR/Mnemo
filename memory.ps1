@@ -2328,72 +2328,97 @@ If vector search is unavailable, keep using:
     return $null
   }
 
-  $vectorPython = Resolve-VectorPython
-  if ($null -eq $vectorPython) {
-    throw "Vector mode requires Python 3.10+ (python/py launcher not found)."
-  }
-
-  $deps = @("openai", "sqlite-vec", "mcp[cli]>=1.2.0,<2.0")
-  if ($VectorProvider -eq "gemini") { $deps += "google-genai" }
-
-  Write-Host "Installing vector dependencies..." -ForegroundColor Cyan
-  & $vectorPython.Path @($vectorPython.Args) -m pip install --quiet @deps
-  if ($LASTEXITCODE -ne 0) {
-    throw "Failed to install vector dependencies. Try: python -m pip install $($deps -join ' ')"
-  }
-
-  $mcpPath = Join-Path $CursorDir "mcp.json"
-  $engineAbsPath = (Resolve-Path (Join-Path $MemScripts "mnemo_vector.py")).Path
-  $mcpRoot = [ordered]@{}
-  if (Test-Path $mcpPath) {
-    try {
-      $existingMcp = Get-Content -Raw -Encoding UTF8 $mcpPath | ConvertFrom-Json
-      if ($existingMcp) {
-        foreach ($prop in $existingMcp.PSObject.Properties) {
-          $mcpRoot[$prop.Name] = $prop.Value
-        }
-      }
-    } catch {
-      Write-Host "WARNING: Could not parse .cursor/mcp.json, rebuilding mcpServers block." -ForegroundColor Yellow
-    }
-  }
-  $servers = @{}
-  if ($mcpRoot.Contains("mcpServers") -and $mcpRoot["mcpServers"]) {
-    foreach ($prop in $mcpRoot["mcpServers"].PSObject.Properties) {
-      $servers[$prop.Name] = $prop.Value
-    }
-  }
-
-  $envBlock = @{ MNEMO_PROVIDER = $VectorProvider }
-  if ($VectorProvider -eq "gemini") {
-    $envBlock["GEMINI_API_KEY"] = '${env:GEMINI_API_KEY}'
-  } else {
-    $envBlock["OPENAI_API_KEY"] = '${env:OPENAI_API_KEY}'
-  }
-  $argsList = @()
-  if ($vectorPython.Args) { $argsList += $vectorPython.Args }
-  $argsList += $engineAbsPath
-  $servers["MnemoVector"] = @{
-    command = $vectorPython.Path
-    args = $argsList
-    env = $envBlock
-  }
-  $mcpRoot["mcpServers"] = $servers
-  $mcpJson = $mcpRoot | ConvertTo-Json -Depth 15
-
   if ($DryRun) {
-    Write-Host "[DRY RUN] WOULD WRITE: $mcpPath" -ForegroundColor DarkCyan
+    Write-Host "[DRY RUN] Skipping vector dependency install and MCP wiring." -ForegroundColor DarkCyan
   } else {
-    # Backup existing mcp.json before overwriting
-    if (Test-Path $mcpPath) {
-      $backupPath = "$mcpPath.bak"
-      Copy-Item -Path $mcpPath -Destination $backupPath -Force
+    $vectorPython = Resolve-VectorPython
+    if ($null -eq $vectorPython) {
+      throw "Vector mode requires Python 3.10+ (python/py launcher not found)."
     }
-    # Atomic write via temp file
-    $mcpTmp = "$mcpPath.tmp"
-    [System.IO.File]::WriteAllText($mcpTmp, $mcpJson, (New-Object System.Text.UTF8Encoding $false))
-    Move-Item -Path $mcpTmp -Destination $mcpPath -Force
-    Write-Host "WROTE: $mcpPath" -ForegroundColor Green
+
+    $deps = @("openai", "sqlite-vec", "mcp[cli]>=1.2.0,<2.0")
+    if ($VectorProvider -eq "gemini") { $deps += "google-genai" }
+    $requiredModules = @("openai", "sqlite_vec", "mcp")
+    if ($VectorProvider -eq "gemini") { $requiredModules += "google.genai" }
+    $moduleListPy = ($requiredModules | ForEach-Object { "'$_'" }) -join ", "
+    $depCheck = "import importlib.util, sys; mods=[$moduleListPy]; missing=[m for m in mods if importlib.util.find_spec(m) is None]; print(','.join(missing)); sys.exit(0 if not missing else 1)"
+    $depsSatisfied = $false
+    if (-not $Force) {
+      & $vectorPython.Path @($vectorPython.Args) -c $depCheck 2>$null | Out-Null
+      $depsSatisfied = ($LASTEXITCODE -eq 0)
+    }
+    if ($depsSatisfied) {
+      Write-Host "SKIP (deps installed): vector dependency install" -ForegroundColor DarkYellow
+    } else {
+      Write-Host "Installing vector dependencies..." -ForegroundColor Cyan
+      & $vectorPython.Path @($vectorPython.Args) -m pip install --quiet @deps
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install vector dependencies. Try: python -m pip install $($deps -join ' ')"
+      }
+    }
+
+    $mcpPath = Join-Path $CursorDir "mcp.json"
+    $engineAbsPath = (Resolve-Path (Join-Path $MemScripts "mnemo_vector.py")).Path
+    $mcpRoot = [ordered]@{}
+    if (Test-Path $mcpPath) {
+      try {
+        $existingMcp = Get-Content -Raw -Encoding UTF8 $mcpPath | ConvertFrom-Json
+        if ($existingMcp) {
+          foreach ($prop in $existingMcp.PSObject.Properties) {
+            $mcpRoot[$prop.Name] = $prop.Value
+          }
+        }
+      } catch {
+        Write-Host "WARNING: Could not parse .cursor/mcp.json, rebuilding mcpServers block." -ForegroundColor Yellow
+      }
+    }
+    $servers = [ordered]@{}
+    if ($mcpRoot.Contains("mcpServers") -and $mcpRoot["mcpServers"]) {
+      foreach ($prop in $mcpRoot["mcpServers"].PSObject.Properties) {
+        $servers[$prop.Name] = $prop.Value
+      }
+    }
+
+    $envBlock = @{ MNEMO_PROVIDER = $VectorProvider }
+    if ($VectorProvider -eq "gemini") {
+      $envBlock["GEMINI_API_KEY"] = '${env:GEMINI_API_KEY}'
+    } else {
+      $envBlock["OPENAI_API_KEY"] = '${env:OPENAI_API_KEY}'
+    }
+    $argsList = @()
+    if ($vectorPython.Args) { $argsList += $vectorPython.Args }
+    $argsList += $engineAbsPath
+    $servers["MnemoVector"] = @{
+      command = $vectorPython.Path
+      args = $argsList
+      env = $envBlock
+    }
+    $mcpRoot["mcpServers"] = $servers
+    $mcpJson = $mcpRoot | ConvertTo-Json -Depth 15
+    $writeMcp = $true
+    if ((-not $Force) -and (Test-Path $mcpPath)) {
+      try {
+        $existingCanonical = (Get-Content -Raw -Encoding UTF8 $mcpPath | ConvertFrom-Json | ConvertTo-Json -Depth 15)
+        $existingNorm = ($existingCanonical -replace "`r?`n", "`n").Trim()
+        $newNorm = ($mcpJson -replace "`r?`n", "`n").Trim()
+        if ($existingNorm -eq $newNorm) {
+          $writeMcp = $false
+          Write-Host "SKIP (exists): $mcpPath (MnemoVector MCP unchanged)" -ForegroundColor DarkYellow
+        }
+      } catch {}
+    }
+    if ($writeMcp) {
+      # Backup existing mcp.json before overwriting
+      if (Test-Path $mcpPath) {
+        $backupPath = "$mcpPath.bak"
+        Copy-Item -Path $mcpPath -Destination $backupPath -Force
+      }
+      # Atomic write via temp file
+      $mcpTmp = "$mcpPath.tmp"
+      [System.IO.File]::WriteAllText($mcpTmp, $mcpJson, (New-Object System.Text.UTF8Encoding $false))
+      Move-Item -Path $mcpTmp -Destination $mcpPath -Force
+      Write-Host "WROTE: $mcpPath" -ForegroundColor Green
+    }
   }
 }
 
@@ -2451,7 +2476,7 @@ if (Test-Path $GitHooksDir) {
   }
 }
 
-if ($EnableVector) {
+if ($EnableVector -and (-not $DryRun)) {
   $apiGuard = if ($VectorProvider -eq "gemini") {
     '[ -z "${GEMINI_API_KEY:-}" ] && exit 0'
   } else {
@@ -2502,7 +2527,7 @@ exit 0
       }
     }
   }
-  Write-TextFile $postHookPath $postHookBody -ForceWrite:$true -LineEndings "LF"
+  Write-TextFile $postHookPath $postHookBody -ForceWrite:$Force -LineEndings "LF"
 
   if (Test-Path $GitHooksDir) {
     $legacyPost = Join-Path $GitHooksDir "post-commit"
@@ -2511,12 +2536,14 @@ exit 0
       if ($legacyExisting -and $legacyExisting -notmatch [regex]::Escape($postMarker)) {
         Write-Host "SKIP (legacy post-commit exists): $legacyPost" -ForegroundColor DarkYellow
       } else {
-        Write-TextFile $legacyPost $postHookBody -ForceWrite:$true -LineEndings "LF"
+        Write-TextFile $legacyPost $postHookBody -ForceWrite:$Force -LineEndings "LF"
       }
     } else {
       Write-TextFile $legacyPost $postHookBody -ForceWrite:$Force -LineEndings "LF"
     }
   }
+} elseif ($EnableVector -and $DryRun) {
+  Write-Host "[DRY RUN] WOULD CONFIGURE: .githooks/post-commit (MnemoVector wrapper)" -ForegroundColor DarkCyan
 }
 
 # -------------------------
@@ -2612,8 +2639,10 @@ Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1) Run: powershell -ExecutionPolicy Bypass -File scripts/memory/rebuild-memory-index.ps1" -ForegroundColor White
 Write-Host "  2) Run: powershell -ExecutionPolicy Bypass -File scripts/memory/lint-memory.ps1" -ForegroundColor White
 Write-Host "  3) Enable portable hooks: git config core.hooksPath .githooks" -ForegroundColor White
-if ($EnableVector) {
+if ($EnableVector -and (-not $DryRun)) {
   Write-Host "  4) Restart Cursor, then run: vector_health and vector_sync" -ForegroundColor White
+} elseif ($EnableVector -and $DryRun) {
+  Write-Host "  4) (Dry run) Vector setup preview only; no MCP or hooks were changed" -ForegroundColor White
 }
 Write-Host ""
 Write-Host "Helper scripts:" -ForegroundColor Cyan
@@ -2624,7 +2653,7 @@ Write-Host "  Lint:        scripts\memory\lint-memory.ps1" -ForegroundColor Dark
 Write-Host "  Clear:       scripts\memory\clear-active.ps1" -ForegroundColor DarkGray
 Write-Host ""
 
-if ($EnableVector) {
+if ($EnableVector -and (-not $DryRun)) {
   Write-Host "Vector tools enabled:" -ForegroundColor Cyan
   Write-Host "  vector_search, vector_sync, vector_forget, vector_health" -ForegroundColor DarkGray
   Write-Host "  Rule: .cursor/rules/01-vector-search.mdc" -ForegroundColor DarkGray
@@ -2637,5 +2666,9 @@ if ($EnableVector) {
     Write-Host "  Export OPENAI_API_KEY in your shell profile." -ForegroundColor White
   }
   Write-Host "  (MCP env in mcp.json is used by Cursor tools, not git hooks.)" -ForegroundColor DarkGray
+  Write-Host ""
+} elseif ($EnableVector -and $DryRun) {
+  Write-Host "Vector tools previewed (dry run):" -ForegroundColor Cyan
+  Write-Host "  No dependencies installed and no MCP/hooks were modified." -ForegroundColor DarkGray
   Write-Host ""
 }
