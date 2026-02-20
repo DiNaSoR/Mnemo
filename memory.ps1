@@ -1546,7 +1546,10 @@ import hashlib
 from pathlib import Path
 
 import sqlite_vec
-from sqlite_vec import serialize_f32
+try:
+    from sqlite_vec import serialize_float32 as serialize_f32
+except ImportError:
+    from sqlite_vec import serialize_f32  # backwards compatibility
 from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 1
