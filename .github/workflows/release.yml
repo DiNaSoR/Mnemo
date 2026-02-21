@@ -128,12 +128,16 @@ jobs:
 
       - name: Verify release artifacts exist
         run: |
-          for f in memory.ps1 memory_mac.sh VERSION CHANGELOG.md; do
+          for f in memory.ps1 memory_mac.sh VERSION CHANGELOG.md README.md LICENSE; do
             if [ ! -f "$f" ]; then
               echo "ERROR: required release artifact missing: $f"
               exit 1
             fi
           done
+          if [ ! -d "scripts/memory/installer" ]; then
+            echo "ERROR: required installer module directory missing: scripts/memory/installer"
+            exit 1
+          fi
 
       - name: Extract changelog section for this release
         run: |
@@ -155,9 +159,64 @@ jobs:
           echo "Release notes:"
           cat release_notes.md
 
+      - name: Build platform bundles
+        run: |
+          VERSION="${{ needs.preflight.outputs.version }}"
+          OUT_DIR="release-bundles"
+          WIN_DIR="$OUT_DIR/mnemo-windows-v${VERSION}"
+          MAC_DIR="$OUT_DIR/mnemo-macos-linux-v${VERSION}"
+
+          rm -rf "$OUT_DIR"
+          mkdir -p "$WIN_DIR" "$MAC_DIR"
+          mkdir -p "$WIN_DIR/scripts/memory/installer" "$MAC_DIR/scripts/memory/installer"
+
+          # Include full installer modules/templates required by both entrypoint scripts.
+          cp -R scripts/memory/installer/. "$WIN_DIR/scripts/memory/installer/"
+          cp -R scripts/memory/installer/. "$MAC_DIR/scripts/memory/installer/"
+
+          # Platform-specific entrypoints + shared docs.
+          cp memory.ps1 VERSION README.md CHANGELOG.md LICENSE "$WIN_DIR/"
+          cp memory_mac.sh VERSION README.md CHANGELOG.md LICENSE "$MAC_DIR/"
+
+          # One-click launcher for Windows users (double-click install.cmd).
+          cat > "$WIN_DIR/install.cmd" <<'EOF'
+          @echo off
+          setlocal
+          set SCRIPT_DIR=%~dp0
+          powershell -ExecutionPolicy Bypass -File "%SCRIPT_DIR%memory.ps1" %*
+          if ERRORLEVEL 1 (
+            echo.
+            echo Mnemo installer failed with exit code %ERRORLEVEL%.
+            pause
+            exit /b %ERRORLEVEL%
+          )
+          echo.
+          echo Mnemo installer completed.
+          pause
+          EOF
+
+          # One-click launcher for macOS users (double-click install.command).
+          cat > "$MAC_DIR/install.command" <<'EOF'
+          #!/bin/sh
+          set -e
+          SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          sh "$SCRIPT_DIR/memory_mac.sh" "$@"
+          EOF
+          chmod +x "$MAC_DIR/install.command" "$MAC_DIR/memory_mac.sh"
+
+          # Create zip bundles to publish in the GitHub release.
+          (cd "$OUT_DIR" && zip -rq "../mnemo-windows-v${VERSION}.zip" "mnemo-windows-v${VERSION}")
+          (cd "$OUT_DIR" && zip -rq "../mnemo-macos-linux-v${VERSION}.zip" "mnemo-macos-linux-v${VERSION}")
+
       - name: Generate release checksums
         run: |
-          sha256sum memory.ps1 memory_mac.sh VERSION > checksums.txt
+          VERSION="${{ needs.preflight.outputs.version }}"
+          sha256sum \
+            mnemo-windows-v${VERSION}.zip \
+            mnemo-macos-linux-v${VERSION}.zip \
+            memory.ps1 \
+            memory_mac.sh \
+            VERSION > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
@@ -166,9 +225,8 @@ jobs:
           name: "Mnemo v${{ needs.preflight.outputs.version }}"
           body_path: release_notes.md
           files: |
-            memory.ps1
-            memory_mac.sh
-            VERSION
+            mnemo-windows-v${{ needs.preflight.outputs.version }}.zip
+            mnemo-macos-linux-v${{ needs.preflight.outputs.version }}.zip
             checksums.txt
           draft: false
           prerelease: false
