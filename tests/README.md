@@ -18,6 +18,12 @@ powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.p
 
 # Retrieval quality benchmark (FTS mode, no API key required)
 python tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
+
+# Deep token-cost simulation for retrieval/context packing
+python tests/retrieval/token_cost_simulation.py --show-per-query --output tests/retrieval/token_cost_report.json
+
+# End-to-end pipeline simulation (install -> retrieve -> store -> compact -> resync)
+python tests/retrieval/e2e_pipeline_simulation.py --output tests/retrieval/e2e_pipeline_report.json
 ```
 
 ### macOS / Linux
@@ -69,6 +75,8 @@ python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
 |------|-------------|
 | `benchmark_runner.py` | Computes hit@k, nDCG@k, MRR, p50/p95 latency, token cost |
 | `drift_check.py` | Detects quality regression vs saved baseline |
+| `token_cost_simulation.py` | Simulates token usage by stage (query/candidates/context pack/prompt total) across top-k + budget scenarios |
+| `e2e_pipeline_simulation.py` | Simulates full user journey from install to retrieval, memory write, compact/rebuild, vector resync, and re-retrieval |
 | `fixtures/basic_queries.json` | Ground-truth query→relevant_ref pairs for evaluation |
 
 ## Adding fixtures
