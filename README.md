@@ -218,7 +218,7 @@ scripts/
 | `add-lesson.ps1` | Creates next `L-XXX` lesson with normalized tags |
 | `add-journal-entry.ps1` | Adds entry under current date in monthly journal |
 | `clear-active.ps1` | Resets `active-context.md` |
-| `mnemo_vector.py` | Vector sync/search MCP server (vector mode only) |
+| `mnemo_vector.py` | Vector MCP server + CLI (`sync`, `search`, `forget`, `health`, `status`) in vector mode |
 
 ## 🔐 Git hooks and API keys
 
@@ -230,12 +230,17 @@ Mnemo auto-configures `core.hooksPath` to `.githooks` and installs:
 Important:
 - Cursor MCP tools read API keys from `.mnemo/mcp/cursor.mcp.json` env placeholders (`.cursor/mcp.json` stays bridged).
 - Git hooks read API keys from your shell environment.
+- If `GEMINI_API_KEY` is not already in the environment, `scripts/memory/mnemo_vector.py` also tries loading keys from project-root `.env`.
 
 ```sh
 # bash/zsh example
 export OPENAI_API_KEY="sk-..."
 # or
 export GEMINI_API_KEY="..."
+
+# optional direct CLI usage (outside MCP tool calls)
+python3 scripts/memory/mnemo_vector.py sync
+python3 scripts/memory/mnemo_vector.py health
 ```
 
 ## ✅ Recommended daily workflow

@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-02-21
+
+### Changed
+- Vector engine now loads project `.env` values (when `GEMINI_API_KEY` is not already set in the shell) before provider resolution, so local API key setup works more reliably in CLI and MCP contexts.
+- Default vector provider auto-resolves to `gemini` when `MNEMO_PROVIDER` is unset and `GEMINI_API_KEY` is available; otherwise it falls back to `openai`.
+- Vector memory root discovery now prioritizes the script location (repo-local `scripts/memory/mnemo_vector.py`) before current working directory scanning, preventing cross-project context leaks when invoked from another directory.
+- Embedded POSIX fallback vector engine now mirrors the same `.env` and provider-resolution behavior as the primary template.
+
+### Added
+- `mnemo_vector.py` now supports direct CLI operations: `sync`, `search`, `forget`, `health`, and `status`, enabling manual vector workflows outside MCP tool calls.
+
 ## [0.0.2] - 2026-02-21
 
 ### Changed
@@ -55,6 +66,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string drift between installer metadata and generated output by using `VERSION` as single source of truth.
 - Python fallback handling in memory query flows that previously depended on a single interpreter name.
 
-[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.3
 [0.0.2]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.2
 [0.0.1]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.1

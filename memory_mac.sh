@@ -1821,9 +1821,70 @@ from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 2
 EMBED_DIM = 1536
-MEM_ROOT = Path(".cursor/memory")
-DB_PATH = MEM_ROOT / "mnemo_vector.sqlite"
-PROVIDER = os.getenv("MNEMO_PROVIDER", "openai").lower()
+
+
+def _resolve_memory_root() -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    script_repo = Path(__file__).resolve().parents[2]
+    for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+        candidate = script_repo.joinpath(*rel)
+        if candidate.exists():
+            return candidate
+
+    cwd = Path.cwd().resolve()
+    for root in (cwd, *cwd.parents):
+        for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+            candidate = root.joinpath(*rel)
+            if candidate.exists():
+                return candidate
+    return script_repo / ".mnemo" / "memory"
+
+
+def _parse_env_line(raw_line: str):
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if line.startswith("export "):
+        line = line[7:].strip()
+    if "=" not in line:
+        return None
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if not key or any(ch.isspace() for ch in key):
+        return None
+    value = value.strip()
+    if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    elif " #" in value:
+        value = value.split(" #", 1)[0].rstrip()
+    return key, value
+
+
+def _load_project_env() -> None:
+    if os.getenv("GEMINI_API_KEY"):
+        return
+    env_path = Path(".env")
+    if not env_path.exists():
+        return
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            parsed = _parse_env_line(raw_line)
+            if not parsed:
+                continue
+            key, value = parsed
+            os.environ.setdefault(key, value)
+    except OSError:
+        pass
+
+
+MEM_ROOT = _resolve_memory_root()
+_DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
+DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
+_load_project_env()
+PROVIDER = os.getenv("MNEMO_PROVIDER", "gemini" if os.getenv("GEMINI_API_KEY") else "openai").lower()
 
 SKIP_NAMES = {
     "README.md",

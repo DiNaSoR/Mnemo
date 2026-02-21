@@ -9,6 +9,8 @@ import re
 import json
 import sqlite3
 import hashlib
+import argparse
+import sys
 from pathlib import Path
 
 import sqlite_vec
@@ -27,19 +29,78 @@ def _resolve_memory_root() -> Path:
     if override:
         return Path(override).expanduser().resolve()
 
+    script_repo = Path(__file__).resolve().parents[2]
+    for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+        candidate = script_repo.joinpath(*rel)
+        if candidate.exists():
+            return candidate
+
     cwd = Path.cwd().resolve()
     for root in (cwd, *cwd.parents):
         for rel in ((".mnemo", "memory"), (".cursor", "memory")):
             candidate = root.joinpath(*rel)
             if candidate.exists():
                 return candidate
-    return cwd / ".mnemo" / "memory"
+    return script_repo / ".mnemo" / "memory"
+
+
+def _resolve_repo_root(memory_root: Path) -> Path:
+    root = memory_root.resolve()
+    if root.name == "memory" and root.parent.name in {".mnemo", ".cursor"}:
+        return root.parent.parent
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        if candidate.joinpath(".mnemo", "memory").exists() or candidate.joinpath(".cursor", "memory").exists():
+            return candidate
+    return cwd
+
+
+def _parse_env_line(raw_line: str) -> tuple[str, str] | None:
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if line.startswith("export "):
+        line = line[7:].strip()
+    if "=" not in line:
+        return None
+
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if not key or any(ch.isspace() for ch in key):
+        return None
+
+    value = value.strip()
+    if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    elif " #" in value:
+        value = value.split(" #", 1)[0].rstrip()
+    return key, value
+
+
+def _load_project_env(repo_root: Path) -> None:
+    # Keep shell-provided values authoritative; only fill missing vars from .env.
+    if os.getenv("GEMINI_API_KEY"):
+        return
+    env_path = repo_root / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            parsed = _parse_env_line(raw_line)
+            if not parsed:
+                continue
+            key, value = parsed
+            os.environ.setdefault(key, value)
+    except OSError:
+        pass
 
 
 MEM_ROOT = _resolve_memory_root()
+REPO_ROOT = _resolve_repo_root(MEM_ROOT)
+_load_project_env(REPO_ROOT)
 _DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
 DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
-PROVIDER = os.getenv("MNEMO_PROVIDER", "openai").lower()
+PROVIDER = os.getenv("MNEMO_PROVIDER", "gemini" if os.getenv("GEMINI_API_KEY") else "openai").lower()
 
 SKIP_NAMES = {
     "README.md", "index.md", "lessons-index.json",
@@ -552,5 +613,42 @@ def memory_status() -> str:
         return json.dumps({"error": str(e)})
 
 
+def _run_cli(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Mnemo vector CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("sync", help="Rebuild vector index from memory markdown files")
+
+    p_search = sub.add_parser("search", help="Semantic search memory")
+    p_search.add_argument("query", help="Search query text")
+    p_search.add_argument("--top-k", type=int, default=8, help="Number of results to return")
+
+    p_forget = sub.add_parser("forget", help="Remove vectors by source path")
+    p_forget.add_argument("ref_path", help="Reference path to remove (exact match)")
+
+    sub.add_parser("health", help="Check DB and embedding provider health")
+    sub.add_parser("status", help="Return JSON memory status summary")
+
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "sync":
+            print(vector_sync())
+        elif args.command == "search":
+            print(vector_search(args.query, top_k=args.top_k))
+        elif args.command == "forget":
+            print(vector_forget(args.ref_path))
+        elif args.command == "health":
+            print(vector_health())
+        elif args.command == "status":
+            print(memory_status())
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
+    cli_commands = {"sync", "search", "forget", "health", "status"}
+    if len(sys.argv) > 1 and sys.argv[1] in cli_commands:
+        raise SystemExit(_run_cli(sys.argv[1:]))
     mcp.run()
