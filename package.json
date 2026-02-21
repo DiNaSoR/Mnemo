@@ -1,0 +1,36 @@
+{
+  "name": "@dinasor/mnemo-cli",
+  "version": "0.0.1",
+  "description": "Mnemo installer CLI for the current project folder.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DiNaSoR/Mnemo.git"
+  },
+  "homepage": "https://github.com/DiNaSoR/Mnemo#readme",
+  "bugs": {
+    "url": "https://github.com/DiNaSoR/Mnemo/issues"
+  },
+  "bin": {
+    "mnemo": "bin/mnemo.js"
+  },
+  "files": [
+    "bin/",
+    "memory.ps1",
+    "memory_mac.sh",
+    "VERSION",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "scripts/memory/installer/**/*.ps1",
+    "scripts/memory/installer/**/*.py",
+    "scripts/memory/installer/**/*.yaml",
+    "scripts/memory/installer/**/*.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

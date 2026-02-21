@@ -25,6 +25,18 @@ Mnemo scaffolds a structured memory layer under `.mnemo/` (canonical) and keeps 
 
 Run from the **target project root**.
 
+### Any OS (npx, recommended)
+
+```sh
+# Installs into your current project folder
+npx @dinasor/mnemo-cli@latest
+
+# Optional flags (cross-platform)
+npx @dinasor/mnemo-cli@latest --dry-run
+npx @dinasor/mnemo-cli@latest --force
+npx @dinasor/mnemo-cli@latest --enable-vector --vector-provider gemini
+```
+
 ### Windows (PowerShell)
 
 ```powershell

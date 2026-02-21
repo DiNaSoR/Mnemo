@@ -230,3 +230,67 @@ jobs:
             checksums.txt
           draft: false
           prerelease: false
+
+  # ─── Publish npm package ────────────────────────────────────────────────────
+  publish-npm:
+    name: Publish npm package (@dinasor/mnemo-cli)
+    needs: [preflight, test-windows, test-posix, autonomy-syntax, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify NPM token is configured
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "ERROR: NPM_TOKEN secret is not configured."
+            echo "Add an npm automation token in repo secrets to enable publish."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify npm package files exist
+        run: |
+          for f in package.json bin/mnemo.js memory.ps1 memory_mac.sh VERSION; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: required npm package file missing: $f"
+              exit 1
+            fi
+          done
+          if [ ! -d "scripts/memory/installer" ]; then
+            echo "ERROR: required npm package directory missing: scripts/memory/installer"
+            exit 1
+          fi
+
+      - name: Sync package version from release tag
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = process.env.VERSION;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "package.json version set to $VERSION"
+
+      - name: Verify npm package contents
+        run: npm pack --dry-run
+
+      - name: Publish package to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          PKG_NAME="$(node -p "require('./package.json').name")"
+          if npm view "${PKG_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "Package ${PKG_NAME}@${VERSION} is already published; skipping."
+            exit 0
+          fi
+          npm publish --access public
