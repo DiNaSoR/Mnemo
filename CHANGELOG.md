@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-02-21
+
+### Changed
+- Installers no longer generate root `CLAUDE.md` and `AGENTS.md`; integrations now use canonical `.mnemo/memory/` and agent bridge rules under `.agent/rules/`.
+- Agent rule naming is normalized to ordered files: `00-memory-system.md` and `01-vector-search.md` (vector mode), aligned with cursor rule naming.
+- Installer-managed `.gitignore` now uses top-level Mnemo paths (`.mnemo/`, `.cursor/memory/`, `.cursor/rules/`, `.cursor/mcp.json`, `.agent/rules/`, `scripts/memory/`, `.githooks/`) for cleaner defaults in target repositories.
+- README IDE guidance now points Claude/Codex users to canonical `.mnemo/memory/` retrieval flow and updated agent rule paths.
+
+### Fixed
+- PowerShell installer no longer hard-fails when `git config core.hooksPath .githooks` cannot be written (permission/lock); it warns and continues.
+- POSIX vector re-runs are idempotent for autonomy module installation when `--force` is not used.
+- Cross-platform installer regression tests now validate the new numbered agent rule output.
+
 ## [0.0.1] - 2026-02-21
 
 ### Added
@@ -24,7 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Autonomy runtime templates installed with vector mode (`autonomy/*` + `policies.yaml`) for ingestion, lifecycle, reranking, context safety, and policy handling.
 - Portable git hooks via `.githooks/` with automatic `core.hooksPath` setup.
 - Hook automation: `pre-commit` rebuild/lint and optional `post-commit` non-blocking vector sync.
-- Multi-agent bridge outputs: `CLAUDE.md`, `AGENTS.md`, and `.agent/rules/memory-system.md`.
+- Multi-agent bridge outputs under `.cursor/rules/` and `.agent/rules/` for IDE-specific rule loading.
 - Cross-platform CI coverage (Windows/macOS/Ubuntu), regression tests, modularization guardrails, and Python syntax checks for autonomy/retrieval modules.
 - Nightly benchmark workflow for retrieval quality/drift monitoring plus artifact upload.
 - GitHub release workflow for tag-based publishing with preflight/version/changelog validation and packaged installer assets.
@@ -42,5 +55,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string drift between installer metadata and generated output by using `VERSION` as single source of truth.
 - Python fallback handling in memory query flows that previously depended on a single interpreter name.
 
-[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.2
 [0.0.1]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.1

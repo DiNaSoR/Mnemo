@@ -561,36 +561,12 @@ SEARCH FIRST, THEN FETCH:
 EOF
 
 # -------------------------
-# Multi-agent bridge files
+# Agent bridge files
 # -------------------------
 
 mkdir -p "$AGENT_RULES_DIR"
 
-write_file "$REPO_ROOT/CLAUDE.md" <<'EOF'
-# Project Memory (Mnemo)
-
-This project uses Mnemo for structured AI memory.
-Memory lives in `.cursor/memory/` as the single source of truth.
-
-## Read Order (ALWAYS)
-1. `.cursor/memory/hot-rules.md` - tiny invariants (<20 lines)
-2. `.cursor/memory/active-context.md` - current session state
-3. `.cursor/memory/memo.md` - long-term project truth + ownership
-
-## Search First, Then Fetch
-- `.cursor/memory/lessons/index.md` → find lesson ID → open only that lesson file
-- `.cursor/memory/digests/YYYY-MM.digest.md` → before raw journal archaeology
-- `.cursor/memory/journal/YYYY-MM.md` → only for deep history
-
-## After Any Feature/Fix
-1. Update `active-context.md` during work
-2. Add journal entry when done
-3. Create lesson if you discovered a pitfall
-4. Update `memo.md` if project truth changed
-5. Clear `active-context.md` when task is merged
-EOF
-
-write_file "$AGENT_RULES_DIR/memory-system.md" <<'EOF'
+write_file "$AGENT_RULES_DIR/00-memory-system.md" <<'EOF'
 ---
 description: Mnemo memory system - structured AI memory in .cursor/memory/
 alwaysApply: true
@@ -621,28 +597,6 @@ This project uses Mnemo for structured AI memory. All memory lives in `.cursor/m
 - Add journal entry when done
 - Create lesson if you discovered a pitfall
 - Clear active-context.md when task is merged
-EOF
-
-write_file "$REPO_ROOT/AGENTS.md" <<'EOF'
-# Memory System (Mnemo)
-
-This project uses Mnemo for structured AI memory.
-Memory location: `.cursor/memory/`
-
-## Retrieval Order
-1. Read `.cursor/memory/hot-rules.md` first (tiny, <20 lines)
-2. Read `.cursor/memory/active-context.md` for current session
-3. Read `.cursor/memory/memo.md` for project truth + ownership
-4. Search `.cursor/memory/lessons/index.md` before creating new patterns
-5. Check `.cursor/memory/digests/` before raw journal archaeology
-
-## Authority Order (highest to lowest)
-1. Lessons override EVERYTHING
-2. active-context.md overrides memo/journal (but NOT lessons)
-3. memo.md is long-term project truth
-4. Journal is history
-5. Existing codebase
-6. New suggestions (lowest priority)
 EOF
 
 write_file "$MEM_SCRIPTS_DIR/customization.md" <<'EOF'
@@ -2208,6 +2162,32 @@ If vector search is unavailable, keep using:
 - `scripts/memory/query-memory.sh --query "..." --use-sqlite`
 EOF
 
+  write_file "$AGENT_RULES_DIR/01-vector-search.md" <<'EOF'
+---
+description: Mnemo vector semantic retrieval layer (optional)
+alwaysApply: true
+---
+
+# Vector Memory Layer (Optional)
+
+This rule supplements `00-memory-system.md` and does not replace governance.
+
+## Use vector tools when:
+- You do not know the exact keyword for prior context.
+- Keyword/FTS search did not find relevant history.
+
+## MCP tools
+- `vector_search` - semantic retrieval with cosine similarity.
+- `vector_sync` - incremental indexing.
+- `vector_forget` - remove stale entries.
+- `vector_health` - DB/API health check.
+
+## Fallback
+If vector search is unavailable, keep using:
+- `scripts/memory/query-memory.sh --query "..."`
+- `scripts/memory/query-memory.sh --query "..." --use-sqlite`
+EOF
+
   if [ "$DRY_RUN" != "1" ]; then
   mcp_status="$(python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" "$FORCE" "$MNEMO_CURSOR_MCP_PATH" <<'PY'
 import json
@@ -2344,25 +2324,13 @@ gi="$REPO_ROOT/.gitignore"
 GI_BEGIN="# >>> Mnemo (generated) - do not edit this block manually <<<"
 GI_END="# <<< Mnemo (generated) >>>"
 
-ignore_lines=".mnemo/memory/memory.sqlite
-.cursor/memory/memory.sqlite
-.mnemo/mcp/cursor.mcp.json
-.cursor/mcp.json"
-if [ "$ENABLE_VECTOR" = "1" ]; then
-  ignore_lines="$ignore_lines
-.mnemo/memory/mnemo_vector.sqlite
-.mnemo/memory/mnemo_vector.sqlite-journal
-.mnemo/memory/mnemo_vector.sqlite-wal
-.mnemo/memory/mnemo_vector.sqlite-shm
-.mnemo/memory/.sync.lock
-.mnemo/memory/.autonomy/
-.cursor/memory/mnemo_vector.sqlite
-.cursor/memory/mnemo_vector.sqlite-journal
-.cursor/memory/mnemo_vector.sqlite-wal
-.cursor/memory/mnemo_vector.sqlite-shm
-.cursor/memory/.sync.lock
-.cursor/memory/.autonomy/"
-fi
+ignore_lines=".mnemo/
+.cursor/memory/
+.cursor/rules/
+.cursor/mcp.json
+.agent/rules/
+scripts/memory/
+.githooks/"
 
 if [ "$DRY_RUN" = "1" ]; then
   echo "[DRY RUN] WOULD UPDATE: $gi (managed Mnemo block)"

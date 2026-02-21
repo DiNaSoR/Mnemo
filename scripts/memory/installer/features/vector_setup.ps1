@@ -99,5 +99,34 @@ If vector search is unavailable, keep using:
 
   Write-MnemoFile (Join-Path $Ctx.RulesDir "01-vector-search.mdc") $vectorRule -ForceWrite:$Force
 
+  $agentVectorRule = @"
+---
+description: Mnemo vector semantic retrieval layer (optional)
+alwaysApply: true
+---
+
+# Vector Memory Layer (Optional)
+
+This rule supplements ``00-memory-system.md`` and does not replace governance.
+
+## Use vector tools when:
+- You do not know the exact keyword for prior context.
+- Keyword/FTS search did not find relevant history.
+
+## MCP tools
+- ``vector_search`` - semantic retrieval with authority-aware reranking.
+- ``vector_sync`` - incremental indexing.
+- ``vector_forget`` - remove stale entries.
+- ``vector_health`` - DB/API health check.
+- ``memory_status`` - JSON summary for autonomous monitoring.
+
+## Fallback
+If vector search is unavailable, keep using:
+- ``scripts/memory/query-memory.ps1 -Query "..."``
+- ``scripts/memory/query-memory.ps1 -Query "..." -UseSqlite``
+"@
+
+  Write-MnemoFile (Join-Path $Ctx.MnemoRulesAgentDir "01-vector-search.md") $agentVectorRule -ForceWrite:$Force
+
   return $vectorPython
 }

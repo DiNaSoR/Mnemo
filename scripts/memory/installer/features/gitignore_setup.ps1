@@ -13,28 +13,16 @@ function Update-MnemoGitignore {
   $giBeginMarker = "# >>> Mnemo (generated) - do not edit this block manually <<<"
   $giEndMarker   = "# <<< Mnemo (generated) >>>"
 
+  # User-facing default: ignore the full Mnemo generated footprint so target repos stay clean by default.
   $ignoreLines = @(
-    ".mnemo/memory/memory.sqlite",
-    ".cursor/memory/memory.sqlite",
-    ".mnemo/mcp/cursor.mcp.json",
-    ".cursor/mcp.json"
+    ".mnemo/",
+    ".cursor/memory/",
+    ".cursor/rules/",
+    ".cursor/mcp.json",
+    ".agent/rules/",
+    "scripts/memory/",
+    ".githooks/"
   )
-  if ($EnableVector) {
-    $ignoreLines += @(
-      ".mnemo/memory/mnemo_vector.sqlite",
-      ".mnemo/memory/mnemo_vector.sqlite-journal",
-      ".mnemo/memory/mnemo_vector.sqlite-wal",
-      ".mnemo/memory/mnemo_vector.sqlite-shm",
-      ".mnemo/memory/.sync.lock",
-      ".mnemo/memory/.autonomy/",
-      ".cursor/memory/mnemo_vector.sqlite",
-      ".cursor/memory/mnemo_vector.sqlite-journal",
-      ".cursor/memory/mnemo_vector.sqlite-wal",
-      ".cursor/memory/mnemo_vector.sqlite-shm",
-      ".cursor/memory/.sync.lock",
-      ".cursor/memory/.autonomy/"
-    )
-  }
 
   $giLineEndings = "CRLF"
   $giContent = ""

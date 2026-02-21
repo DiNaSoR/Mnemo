@@ -108,10 +108,29 @@ Ensure-MnemoCanonicalBridges -Ctx $ctx
 
 # Auto-configure portable hooks path (removes the manual 'git config' step)
 if (-not $DryRun -and (Test-Path $ctx.GitDir)) {
-  $currentHooksPath = & git -C $RepoRoot config core.hooksPath 2>$null
-  if ($currentHooksPath -ne ".githooks") {
-    & git -C $RepoRoot config core.hooksPath .githooks 2>$null
-    Write-Host "Configured: git config core.hooksPath .githooks" -ForegroundColor Green
+  $nativeErrorPrefVar = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+  $nativeErrorPrefOld = $null
+  if ($null -ne $nativeErrorPrefVar) {
+    $nativeErrorPrefOld = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+  }
+
+  try {
+    $currentHooksPath = (& git -C $RepoRoot config core.hooksPath 2>$null | Out-String).Trim()
+    if ($currentHooksPath -ne ".githooks") {
+      $null = & git -C $RepoRoot config core.hooksPath .githooks 2>$null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "Configured: git config core.hooksPath .githooks" -ForegroundColor Green
+      } else {
+        Write-Warning "Could not set git core.hooksPath automatically (permission denied or repo locked). Continuing."
+      }
+    }
+  } catch {
+    Write-Warning "Could not set git core.hooksPath automatically. Continuing."
+  } finally {
+    if ($null -ne $nativeErrorPrefVar) {
+      $PSNativeCommandUseErrorActionPreference = $nativeErrorPrefOld
+    }
   }
 }
 
@@ -140,7 +159,7 @@ Write-Host ""
 if ($EnableVector -and (-not $DryRun)) {
   Write-Host "Vector tools enabled ($VectorProvider):" -ForegroundColor Cyan
   Write-Host "  MCP tools: vector_search, vector_sync, vector_forget, vector_health, memory_status" -ForegroundColor DarkGray
-  Write-Host "  Rule: .cursor/rules/01-vector-search.mdc" -ForegroundColor DarkGray
+  Write-Host "  Rules: .cursor/rules/01-vector-search.mdc and .agent/rules/01-vector-search.md" -ForegroundColor DarkGray
   Write-Host "  MCP:  .cursor/mcp.json -> MnemoVector server" -ForegroundColor DarkGray
   Write-Host ""
   Write-Host "Autonomous memory runtime:" -ForegroundColor Cyan

@@ -191,30 +191,6 @@ SEARCH FIRST, THEN FETCH:
 - Don't create parallel systems -> check memo.md ownership map
 "@
 
-  $claudeMd = @"
-# Project Memory (Mnemo)
-
-This project uses [Mnemo](https://github.com/DiNaSoR/Mnemo) for structured AI memory.
-Memory lives in ``.cursor/memory/`` as the single source of truth.
-
-## Read Order (ALWAYS)
-1. ``.cursor/memory/hot-rules.md`` - tiny invariants (<20 lines)
-2. ``.cursor/memory/active-context.md`` - current session state
-3. ``.cursor/memory/memo.md`` - long-term project truth + ownership
-
-## Search First, Then Fetch
-- ``.cursor/memory/lessons/index.md`` -> find lesson ID -> open only that lesson file
-- ``.cursor/memory/digests/YYYY-MM.digest.md`` -> before raw journal archaeology
-- ``.cursor/memory/journal/YYYY-MM.md`` -> only for deep history
-
-## After Any Feature/Fix
-1. Update ``active-context.md`` during work
-2. Add journal entry when done
-3. Create lesson if you discovered a pitfall
-4. Update ``memo.md`` if project truth changed
-5. Clear ``active-context.md`` when task is merged
-"@
-
   $static = @{
     (Join-Path $Ctx.MemoryDir "index.md")                      = $indexMd
     (Join-Path $Ctx.MemoryDir "hot-rules.md")                  = $hotRules
@@ -222,7 +198,6 @@ Memory lives in ``.cursor/memory/`` as the single source of truth.
     (Join-Path $Ctx.MemoryDir "memo.md")                       = $memo
     (Join-Path $Ctx.JournalDir "$month.md")                    = $journalMonth
     (Join-Path $Ctx.RulesDir "00-memory-system.mdc")           = $memoryRule
-    (Join-Path $Ctx.RepoRoot "CLAUDE.md")                      = $claudeMd
   }
 
   foreach ($kv in $static.GetEnumerator()) {
@@ -397,7 +372,7 @@ What did we choose?
 Tradeoffs, risks, follow-ups.
 "@ -ForceWrite:$Force
 
-  # Multi-agent bridges
+  # Agent bridge rules
   $geminiRule = @"
 ---
 description: Mnemo memory system - structured AI memory in .cursor/memory/
@@ -426,37 +401,7 @@ This project uses Mnemo for structured AI memory. All memory lives in ``.cursor/
 - Clear active-context.md when task is merged
 "@
 
-  $agentsMd = @"
-# Memory System (Mnemo)
-
-This project uses Mnemo for structured AI memory.
-Memory location: ``.cursor/memory/``
-
-## Retrieval Order
-1. Read ``.cursor/memory/hot-rules.md`` first (tiny, <20 lines)
-2. Read ``.cursor/memory/active-context.md`` for current session
-3. Read ``.cursor/memory/memo.md`` for project truth + ownership
-4. Search ``.cursor/memory/lessons/index.md`` before creating new patterns
-5. Check ``.cursor/memory/digests/`` before raw journal archaeology
-
-## Authority Order (highest to lowest)
-1. Lessons override EVERYTHING
-2. active-context.md overrides memo/journal (but NOT lessons)
-3. memo.md is long-term project truth
-4. Journal is history
-5. Existing codebase
-6. New suggestions (lowest priority)
-
-## After Any Feature/Fix
-- Update active-context.md during work (scratchpad)
-- Add journal entry to journal/YYYY-MM.md when done
-- Create lessons/L-XXX-title.md if you discovered a pitfall
-- Update memo.md if project truth changed
-- Clear active-context.md when task is merged
-"@
-
-  Write-MnemoFile (Join-Path $Ctx.MnemoRulesAgentDir "memory-system.md") $geminiRule -ForceWrite:$Force
-  Write-MnemoFile (Join-Path $Ctx.RepoRoot "AGENTS.md") $agentsMd -ForceWrite:$Force
+  Write-MnemoFile (Join-Path $Ctx.MnemoRulesAgentDir "00-memory-system.md") $geminiRule -ForceWrite:$Force
 
   Write-Host "`nMemory scaffold installed." -ForegroundColor Cyan
 }
