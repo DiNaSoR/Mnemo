@@ -2,286 +2,238 @@
   <img src="assets/header.png" alt="Mnemo - A Memory System for AI Coding Agents" width="100%">
 </p>
 
-# Mnemo
+# Mnemo 🧠
 
 [![CI](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml/badge.svg)](https://github.com/DiNaSoR/Mnemo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/DiNaSoR/Mnemo)](LICENSE)
 
-Windows-first, token-safe **repo memory system** for AI coding agents — with a fully autonomous runtime that needs no human intervention after initial install.
+> Token-safe repo memory for AI coding agents, with an autonomous runtime and optional semantic recall.
+>
+> ✅ Works with Cursor • Claude Code • Gemini Antigravity • OpenAI Codex • Windsurf • and more
 
-> **Works with:** Cursor • Claude Code • Gemini Antigravity • OpenAI Codex • Windsurf • and more
+Mnemo scaffolds a structured memory layer under `.cursor/` and keeps it fresh with automated indexing, guardrails, and hooks.
 
-Mnemo scaffolds a structured memory layer under `.cursor/` as the single source of truth, then keeps it up-to-date automatically via git hook triggers and a background scheduler.
+## ✨ Why Mnemo
 
-### What you get
+- 🧭 **Predictable retrieval order** so agents read high-signal memory first
+- 🧱 **Atomic lessons + indexed journal** for durable project knowledge
+- 🛡️ **Quality guardrails** (lint, token budget checks, CI benchmarks)
+- ⚙️ **Autonomous mode** with vector sync and lifecycle tracking
+- 🔌 **MCP tools** for semantic recall in Cursor when vector mode is enabled
 
-- **Always-read layer**: `.cursor/memory/hot-rules.md`, `active-context.md`, `memo.md` (kept small + token-aware)
-- **Atomic lessons**: `.cursor/memory/lessons/L-XXX-*.md` with strict YAML frontmatter + generated index
-- **Monthly journal**: `.cursor/memory/journal/YYYY-MM.md` + generated digest + journal index
-- **Agent rule enforcement**: `.cursor/rules/00-memory-system.mdc` (Cursor-native, adaptable for others)
-- **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
-- **Optional SQLite FTS**: built if Python is available (`.cursor/memory/memory.sqlite`)
-- **Portable git hook**: `.githooks/pre-commit` to auto-rebuild + lint (auto-configured — no `git config` step)
-- **Optional vector semantic layer**: enable via installer flag to generate `scripts/memory/mnemo_vector.py` + Cursor tools (`vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`)
-- **Optional vector rule + hook**: `.cursor/rules/01-vector-search.mdc` and `.githooks/post-commit` (only when vector mode is enabled)
-- **Autonomous runtime** (when vector enabled): `scripts/memory/autonomy/runner.py` — zero-operator memory ingestion, typed metadata, fact lifecycle, entity resolution, authority-aware reranking, context safety, and nightly quality gates
+## 🚀 Install Mnemo (once per project)
 
-### Quickstart
+Run from the **target project root**.
 
-From the repo root:
+### Windows (PowerShell)
 
 ```powershell
-# Install / scaffold memory system in this repo
+# Standard install
 powershell -ExecutionPolicy Bypass -File .\memory.ps1
 
-# Optional: set a custom name used in memo/journal headers
-powershell -ExecutionPolicy Bypass -File .\memory.ps1 -ProjectName "MyProject"
-
-# Optional: overwrite previously generated files
-powershell -ExecutionPolicy Bypass -File .\memory.ps1 -Force
-
-# Optional: enable semantic vector layer (OpenAI default)
+# With vector mode (OpenAI default)
 powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector
 
-# Optional: enable semantic vector layer with Gemini embeddings
+# With vector mode (Gemini embeddings)
 powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector -VectorProvider gemini
 ```
 
-macOS / POSIX shell:
+### macOS / Linux (POSIX shell)
 
 ```sh
+# Standard install
 sh ./memory_mac.sh
+
+# With vector mode (OpenAI default)
 sh ./memory_mac.sh --enable-vector
+
+# With vector mode (Gemini embeddings)
 sh ./memory_mac.sh --enable-vector --vector-provider gemini
 ```
 
-After setup (git hooks are auto-configured; no extra steps needed):
+### Post-install sanity check
 
 ```powershell
-# Build indexes + (optionally) SQLite index
 powershell -ExecutionPolicy Bypass -File .\scripts\memory\rebuild-memory-index.ps1
-
-# Validate memory health (frontmatter, tags, token budget, etc.)
 powershell -ExecutionPolicy Bypass -File .\scripts\memory\lint-memory.ps1
 ```
 
-If vector mode is enabled, run once after restart to seed the index:
+If vector mode is enabled, restart your IDE once and run:
 
 ```text
 vector_health
 vector_sync
 ```
 
-After the first sync, the system is autonomous — it re-syncs automatically on every commit via `post-commit` hook. No manual operator steps needed.
+---
 
-### Autonomous mode (no human in the loop)
+## 🧩 IDE setup guide (per project)
 
-When installed with `-EnableVector` (or `--enable-vector`), Mnemo enters autonomous mode:
+Use the section that matches your IDE. Each project should run Mnemo install once.
 
-| Component | What it does |
+| IDE / Agent | What installer creates | What you do next |
+|---|---|---|
+| Cursor | `.cursor/rules/00-memory-system.mdc` (+ `.cursor/mcp.json` in vector mode) | Restart Cursor, run `vector_health`, then `vector_sync` |
+| Claude Code | `CLAUDE.md` bridge file | Open repo in Claude Code and follow read order from `CLAUDE.md` |
+| Gemini Antigravity | `.agent/rules/memory-system.md` | Ensure Antigravity loads project rules from `.agent/rules/` |
+| OpenAI Codex | `AGENTS.md` | Start Codex from repo root so `AGENTS.md` is in scope |
+| Windsurf / Other IDEs | `.cursor/memory/` knowledge base | Point memory/context path to `.cursor/memory/` |
+
+### 1) Cursor IDE 🟦
+
+1. Run installer in your project (`memory.ps1` or `memory_mac.sh`).
+2. For semantic tools, enable vector mode during install.
+3. Confirm `.cursor/mcp.json` exists.
+4. Restart Cursor.
+5. Run `vector_health` then `vector_sync`.
+
+You should see MCP tools:
+`vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`.
+
+### 2) Claude Code 🤝
+
+1. Run Mnemo install in your project root.
+2. Confirm `CLAUDE.md` exists (auto-generated by installer).
+3. Start Claude Code from the project root.
+4. Keep `.cursor/memory/` committed so memory travels with the repo.
+
+### 3) Gemini Antigravity 🔷
+
+1. Run Mnemo install in your project root.
+2. Confirm `.agent/rules/memory-system.md` exists.
+3. Ensure your Antigravity setup loads `.agent/rules/`.
+4. (Optional) Enable vector mode for semantic memory workflows.
+
+### 4) OpenAI Codex 🧪
+
+1. Run Mnemo install in your project root.
+2. Confirm `AGENTS.md` exists.
+3. Launch Codex from the same root so `AGENTS.md` is used.
+4. Follow the retrieval order defined in `AGENTS.md`.
+
+### 5) Windsurf / Other IDEs 🌊
+
+1. Run Mnemo install in your project root.
+2. Point your IDE's memory/context config to `.cursor/memory/`.
+3. Reuse the same retrieval order:
+   `hot-rules.md` → `active-context.md` → `memo.md` → indexed lessons/digests.
+
+---
+
+## 🧠 What Mnemo gives you
+
+- **Always-read layer**: `.cursor/memory/hot-rules.md`, `active-context.md`, `memo.md`
+- **Atomic lessons**: `.cursor/memory/lessons/L-XXX-*.md` + generated lesson index
+- **Monthly journal + digests**: `.cursor/memory/journal/YYYY-MM.md` + `.cursor/memory/digests/*.digest.md`
+- **Rule enforcement**: `.cursor/rules/00-memory-system.mdc`
+- **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
+- **Optional SQLite FTS**: `.cursor/memory/memory.sqlite` when Python is available
+- **Optional vector layer**: `scripts/memory/mnemo_vector.py` + MCP tools
+- **Optional autonomous runtime**: `scripts/memory/autonomy/*` (vector mode)
+
+## 🤖 Autonomous mode (no human in the loop)
+
+When installed with vector mode (`-EnableVector` / `--enable-vector`), Mnemo can run autonomously:
+
+| Component | Purpose |
 |---|---|
-| `autonomy/runner.py` | Change detection → ingest → classify → lifecycle → journal delta |
-| `autonomy/ingest_pipeline.py` | Chunks changed `.md` files with typed metadata classification |
-| `autonomy/lifecycle_engine.py` | ADD / UPDATE / DEPRECATE / NOOP per fact with audit trail |
-| `autonomy/entity_resolver.py` | Stable entity IDs + alias resolution across memory units |
-| `autonomy/retrieval_router.py` | Intent classification → routes queries to right memory class |
+| `autonomy/runner.py` | Orchestrates detect → ingest → lifecycle → journal delta |
+| `autonomy/ingest_pipeline.py` | Classifies/ingests changed memory content |
+| `autonomy/lifecycle_engine.py` | Fact ADD / UPDATE / DEPRECATE / NOOP with audit trail |
+| `autonomy/entity_resolver.py` | Stable entity IDs + alias mapping |
+| `autonomy/retrieval_router.py` | Intent routing to memory categories |
 | `autonomy/reranker.py` | Score fusion (semantic + authority + temporal + entity) |
-| `autonomy/context_safety.py` | Dedup + contradiction detection + token budget enforcement |
-| `autonomy/vault_policy.py` | Redaction of secret/vault sensitivity entries |
-| `autonomy/policies.yaml` | Policy config (thresholds, sensitivity rules, token budgets) |
+| `autonomy/context_safety.py` | Dedup, contradiction checks, token budget guard |
+| `autonomy/vault_policy.py` | Redaction/sensitivity policy enforcement |
+| `autonomy/policies.yaml` | Benchmark + safety thresholds |
 
-The runner triggers on:
-- `post-commit` git hook (after every commit)
+Runner triggers:
+- `post-commit` hook
 - `post-merge` / `post-checkout` hooks
-- Periodic scheduler (`python runner.py --mode schedule`)
-- Direct call (`python runner.py --mode once`)
+- `python runner.py --mode schedule`
+- `python runner.py --mode once`
 
-### Daily workflow (recommended)
+## 🗂️ Generated layout
 
-- **At task start**: write the goal + files in focus into `.cursor/memory/active-context.md`
-- **When you need context**: search first, then open only the matches:
+```text
+.cursor/
+  memory/
+    hot-rules.md
+    active-context.md
+    memo.md
+    lessons/
+    journal/
+    digests/
+    adr/
+    templates/
+  rules/
+    00-memory-system.mdc
+    01-vector-search.mdc   # vector mode only
+  mcp.json                 # vector mode only
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\memory\query-memory.ps1 -Query "your term"
+scripts/
+  memory/
+    rebuild-memory-index.ps1
+    lint-memory.ps1
+    query-memory.ps1
+    add-lesson.ps1
+    add-journal-entry.ps1
+    clear-active.ps1
+    mnemo_vector.py        # vector mode only
+    autonomy/              # vector mode only
 ```
 
-- **When keywords fail** (vector mode enabled): run semantic recall with `vector_search`.
+## 🛠️ Helper scripts (quick reference)
 
-- **When done**:
-  - add a journal entry
-  - create a lesson if you discovered a repeatable pitfall
-  - rebuild indexes
-  - clear `active-context.md`
+| Script | What it does |
+|---|---|
+| `rebuild-memory-index.ps1` | Rebuilds lesson/journal indexes and digests |
+| `lint-memory.ps1` | Validates frontmatter, tags, date headers, token budget |
+| `query-memory.ps1` | Searches memory via file search or SQLite FTS (`-UseSqlite`) |
+| `add-lesson.ps1` | Creates next `L-XXX` lesson with normalized tags |
+| `add-journal-entry.ps1` | Adds entry under current date in monthly journal |
+| `clear-active.ps1` | Resets `active-context.md` |
+| `mnemo_vector.py` | Vector sync/search MCP server (vector mode only) |
 
-### Memory layout
+## 🔐 Git hooks and API keys
 
-Mnemo generates:
+Mnemo auto-configures `core.hooksPath` to `.githooks` and installs:
 
-- **`.cursor/memory/index.md`**: entry point + “read order”
-- **`.cursor/memory/hot-rules.md`**: tiny invariants (keep ~20 lines)
-- **`.cursor/memory/active-context.md`**: session scratchpad (clear when done)
-- **`.cursor/memory/memo.md`**: long-term “current truth” + ownership
-- **`.cursor/memory/tag-vocabulary.md`**: canonical tag list used by the linter
-- **`.cursor/memory/regression-checklist.md`**: lightweight “what to verify” checklist
-- **`.cursor/memory/lessons/`**: atomic lessons + generated `index.md`
-- **`.cursor/memory/journal/`**: monthly journal files `YYYY-MM.md`
-- **`.cursor/memory/digests/`**: generated `YYYY-MM.digest.md` summaries
-- **`.cursor/memory/adr/`**: architecture decision records (ADRs)
-- **`.cursor/memory/templates/`**: templates for lessons, journal entries, ADRs
-- **`.cursor/rules/00-memory-system.mdc`**: Cursor rule that enforces the retrieval workflow
+- `pre-commit`: rebuild + lint memory
+- `post-commit` (vector mode): non-blocking `vector_sync` with lock protection
 
-### Helper scripts
-
-All scripts live in `scripts/memory/`.
-
-- **Rebuild indexes** (`rebuild-memory-index.ps1`)
-  - Generates `lessons/index.md`, `lessons-index.json`, `journal-index.md`, `journal-index.json`, and monthly digests
-  - If Python exists, also builds `.cursor/memory/memory.sqlite`
-
-- **Lint memory** (`lint-memory.ps1`)
-  - Validates lesson frontmatter + unique IDs
-  - Ensures lesson tags exist in `tag-vocabulary.md`
-  - Checks journal date headings don’t repeat within a month file
-  - Checks “always-read layer” token budget
-
-- **Query memory** (`query-memory.ps1`)
-  - File-based search by default; optional SQLite FTS with `-UseSqlite`
-  - Parameters:
-    - `-Query "..."` (required)
-    - `-Area All|HotRules|Active|Memo|Lessons|Journal|Digests`
-    - `-Format Human|AI` (AI prints “Files to read” paths)
-    - `-UseSqlite`
-
-- **Add lesson** (`add-lesson.ps1`)
-  - Creates a new `lessons/L-XXX-*.md` with the next available ID
-  - Canonicalizes tags using `tag-vocabulary.md`
-
-- **Add journal entry** (`add-journal-entry.ps1`)
-  - Adds a bullet under `## YYYY-MM-DD` in the current month file (or creates it)
-  - Ensures only one date heading per day (appends if it already exists)
-
-- **Clear active context** (`clear-active.ps1`)
-  - Resets `.cursor/memory/active-context.md` to the blank template
-
-- **Vector engine** (`mnemo_vector.py`) - optional
-  - Generated only when vector mode is enabled at install time
-  - Exposes MCP tools: `vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`
-  - Uses authority-aware score fusion reranking (semantic + authority weight + temporal decay + entity match)
-  - Schema v2: includes `memory_units`, `facts`, `lifecycle_events`, `entities` tables
-
-- **Autonomous runtime** (`scripts/memory/autonomy/`) - installed with vector mode
-  - `runner.py` — orchestrates the full autonomous memory cycle
-  - `ingest_pipeline.py` — typed metadata classification per file
-  - `lifecycle_engine.py` — fact ADD/UPDATE/DEPRECATE/NOOP with audit log
-  - `entity_resolver.py` — stable entity IDs + alias mapping
-  - `retrieval_router.py` — intent-based routing to memory classes
-  - `reranker.py` — score fusion reranker
-  - `context_safety.py` — safety guard for context packs
-  - `vault_policy.py` — sensitivity redaction pipeline
-  - `policies.yaml` — per-project policy configuration
-
-### Git hooks
-
-Mnemo writes a pre-commit hook that:
-
-- runs `rebuild-memory-index.ps1` and `lint-memory.ps1`
-- stages the generated indexes/digests
-- skips gracefully if PowerShell isn’t available
-
-If vector mode is enabled, Mnemo also writes a post-commit hook that:
-
-- runs `vector_sync` non-blocking with a lock directory to avoid overlap
-- skips safely when API keys are missing
-- preserves existing post-commit behavior via a backup chain
-
-Mnemo **auto-configures** `git config core.hooksPath .githooks` during install — no manual step needed.
-
-Important: Cursor MCP tools read API keys from `.cursor/mcp.json` env placeholders, but git hooks read shell environment variables.  
-Export keys in your shell profile if you want post-commit vector auto-sync:
+Important:
+- Cursor MCP tools read API keys from `.cursor/mcp.json` env placeholders.
+- Git hooks read API keys from your shell environment.
 
 ```sh
-# bash/zsh examples
+# bash/zsh example
 export OPENAI_API_KEY="sk-..."
 # or
 export GEMINI_API_KEY="..."
 ```
 
-### Multi-Agent Support
+## ✅ Recommended daily workflow
 
-Mnemo uses `.cursor/` as the canonical memory directory. Here's how to configure other agents to use it:
+1. Update `.cursor/memory/active-context.md` at task start.
+2. Search first (`query-memory.ps1`) before opening many files.
+3. Use `vector_search` when keyword lookup misses.
+4. At finish: add journal entry, add lesson if needed, rebuild, clear active context.
 
-#### Claude Code
-
-Add to your `CLAUDE.md` at repo root:
-
-```markdown
-# Project Memory
-
-This project uses Mnemo for structured AI memory.
-
-## Read Order (ALWAYS)
-1. `.cursor/memory/hot-rules.md` - invariants
-2. `.cursor/memory/active-context.md` - current session
-3. `.cursor/memory/memo.md` - project truth
-
-## Search First, Then Fetch
-- `.cursor/memory/lessons/index.md` → find lesson ID → open specific lesson
-- `.cursor/memory/digests/YYYY-MM.digest.md` → before raw journal
-```
-
-#### Gemini Antigravity
-
-Create `.agent/rules/memory-system.md`:
-
-```markdown
----
-description: Mnemo memory system integration
----
-
-## Memory Location
-Read project memory from `.cursor/memory/`:
-- `hot-rules.md` - tiny invariants (read first)
-- `active-context.md` - current session state
-- `memo.md` - project truth + ownership
-- `lessons/index.md` - searchable lesson index
-- `digests/*.digest.md` - monthly summaries
-```
-
-#### OpenAI Codex
-
-Add to your root `AGENTS.md`:
-
-```markdown
-# Memory System
-
-This project uses Mnemo. Memory lives in `.cursor/memory/`.
-
-## Retrieval Order
-1. Read `.cursor/memory/hot-rules.md` first (tiny, <20 lines)
-2. Read `.cursor/memory/active-context.md` for current session
-3. Read `.cursor/memory/memo.md` for project truth
-4. Search `.cursor/memory/lessons/index.md` before creating new patterns
-5. Check `.cursor/memory/digests/` before raw journal archaeology
-```
-
-#### Windsurf / Others
-
-Point your agent's memory/context configuration to `.cursor/memory/`. The markdown files are agent-agnostic—only `.cursor/rules/*.mdc` is Cursor-specific.
-
-### Requirements
+## 📋 Requirements
 
 - **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7 (`pwsh`)
 - **Git**
-- **Optional**: Python 3 for SQLite FTS index (`memory.sqlite`)
+- **Optional**: Python 3 for SQLite FTS index
 - **Optional (vector mode)**:
   - Python 3.10+
-  - API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`)
-  - Installer auto-installs: `openai`, `sqlite-vec`, `mcp[cli]>=1.2.0,<2.0` (+ `google-genai` for Gemini)
+  - API key: `OPENAI_API_KEY` or `GEMINI_API_KEY`
+  - Auto-installed deps: `openai`, `sqlite-vec`, `mcp[cli]>=1.2.0,<2.0` (+ `google-genai` for Gemini)
 
-### Contributing
+## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and feature requests use the issue templates in [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/). Security issues go to [SECURITY.md](SECURITY.md).
 
-### License
+## 📄 License
 
 See [LICENSE](LICENSE).

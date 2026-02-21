@@ -10,3 +10,5 @@
 
 # Local Cursor MCP wiring
 .cursor/mcp.json
+
+__pycache__/
