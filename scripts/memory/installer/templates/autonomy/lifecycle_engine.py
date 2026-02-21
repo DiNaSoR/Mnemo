@@ -10,6 +10,7 @@ No human required: transitions happen automatically on every ingest cycle.
 """
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -71,6 +72,21 @@ def _simple_similarity(a: str, b: str) -> float:
     if not ta or not tb:
         return 0.0
     return len(ta & tb) / len(ta | tb)
+
+
+def _resolve_lessons_dir(repo_root: Path) -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve() / "lessons"
+
+    candidates = [
+        repo_root / ".mnemo" / "memory" / "lessons",
+        repo_root / ".cursor" / "memory" / "lessons",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 class LifecycleEngine:
@@ -193,7 +209,7 @@ class LifecycleEngine:
         ).fetchall()
 
         promoted = []
-        lessons_dir = repo_root / ".cursor" / "memory" / "lessons"
+        lessons_dir = _resolve_lessons_dir(repo_root)
         lessons_dir.mkdir(parents=True, exist_ok=True)
 
         existing = sorted(lessons_dir.glob("L-*.md"))

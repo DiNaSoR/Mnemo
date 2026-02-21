@@ -14,7 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Cross-platform CI workflow (Windows / macOS / Ubuntu)
 - Installer smoke tests and idempotency tests in `tests/`
 - `--dry-run` flag for both `memory.ps1` and `memory_mac.sh`
-- Atomic backup before mutating `.cursor/mcp.json`
+- Canonical `.mnemo` storage root with permanent compatibility bridges to `.cursor` and `.agent`
+- Cross-platform bridge manager with link fallback modes (symlink/junction/hardlink/mirror)
+- Bridge-specific regression coverage (`legacy-migration-bridge`, `bridge-repair-idempotent`)
+- Atomic backup before mutating canonical MCP config (`.mnemo/mcp/cursor.mcp.json`)
 - Safer `.gitignore` deduplication with section markers
 - `CODEOWNERS` and `dependabot.yml`
 
@@ -22,11 +25,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string centralized to `VERSION` file; installers and generated output derive from it
 - Improved Python detection in `memory.ps1` to be consistent with `rebuild-memory-index.ps1`
 - `query-memory.ps1` now uses the same multi-candidate Python resolver as the rest of `memory.ps1`
+- Installers, templates, vector/autonomy runtime, hooks, and retrieval benchmarks now resolve `.mnemo` first with `.cursor` compatibility fallback
+- Git hooks and managed `.gitignore` now stage/ignore canonical `.mnemo` artifacts while preserving Cursor bridge compatibility
 
 ### Fixed
 - Duplicate `.gitignore` entries on repeated `--force` runs
 - Version mismatch between file header (`v3.3.0`) and generated output strings (`v3.2.2`)
 - `query-memory.ps1` using only `python` instead of trying `py`/`python3` fallbacks
+- File bridge idempotency for hardlinked `.cursor/mcp.json` targets (prevents self-copy IO errors)
 
 ---
 

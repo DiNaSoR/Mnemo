@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Mnemo vector memory engine (v2).
-Optional semantic layer for .cursor/memory with MCP tools.
+Optional semantic layer for Mnemo memory with MCP tools.
 Schema v2 adds typed memory units, fact lifecycle tables, and entity tags.
 """
 import os
@@ -20,8 +20,25 @@ from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 2
 EMBED_DIM = 1536
-MEM_ROOT = Path(".cursor/memory")
-DB_PATH = MEM_ROOT / "mnemo_vector.sqlite"
+
+
+def _resolve_memory_root() -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    for root in (cwd, *cwd.parents):
+        for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+            candidate = root.joinpath(*rel)
+            if candidate.exists():
+                return candidate
+    return cwd / ".mnemo" / "memory"
+
+
+MEM_ROOT = _resolve_memory_root()
+_DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
+DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
 PROVIDER = os.getenv("MNEMO_PROVIDER", "openai").lower()
 
 SKIP_NAMES = {

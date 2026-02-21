@@ -1,6 +1,6 @@
 # Mnemo Tests
 
-This folder contains regression, smoke, modularization guardrail, and retrieval quality tests for the Mnemo memory system.
+This folder contains regression, smoke, modularization guardrail, and retrieval quality tests for the Mnemo memory system (`.mnemo` canonical + `.cursor/.agent` bridge compatibility).
 
 ## Running tests
 
@@ -52,11 +52,13 @@ python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
 | `dry-run` | `--dry-run` produces no files on disk |
 | `dry-run-vector` | `--dry-run` with vector mode performs no writes or dependency installs |
 | `path-with-spaces` | Installer works when repo path contains spaces |
-| `malformed-mcp-json` | Installer recovers gracefully from corrupt `.cursor/mcp.json` |
+| `malformed-mcp-json` | Installer recovers gracefully from corrupt `.cursor/mcp.json` and restores canonical MCP bridge target |
 | `missing-python` | SQLite build skipped gracefully when Python is absent (mock) |
 | `rebuild-lint` | `rebuild-memory-index` + `lint-memory` pass after fresh install |
 | `gitignore-dedup` | Running installer twice does not duplicate `.gitignore` entries |
 | `version-in-output` | Generated files reference the correct version from `VERSION` |
+| `legacy-migration-bridge` | Legacy `.cursor/.agent` memory/rules are migrated into `.mnemo` and remain visible via bridges |
+| `bridge-repair-idempotent` | Installer recreates broken `.cursor` bridge paths on re-run |
 
 ### Modularization guardrail (`test-installer-modularization.ps1`)
 
@@ -102,6 +104,6 @@ The autonomous memory runtime (`scripts/memory/autonomy/`) is tested via:
 
 1. Run `vector_health` in Cursor to check DB + API status
 2. Run `python scripts/memory/autonomy/runner.py --mode once` from repo root to see runner output
-3. Check `.cursor/memory/.autonomy/runner.lock` — if stale (>10 min old), delete it
+3. Check `.mnemo/memory/.autonomy/runner.lock` (or `.cursor/memory/.autonomy/runner.lock` bridge) — if stale (>10 min old), delete it
 4. Run `vector_sync` manually in Cursor to force-rebuild the vector index
 5. Run `powershell -ExecutionPolicy Bypass -File scripts/memory/rebuild-memory-index.ps1` for FTS index

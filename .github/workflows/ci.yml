@@ -226,6 +226,7 @@ jobs:
             scripts/memory/installer/bootstrap.ps1 \
             scripts/memory/installer/core/io.ps1 \
             scripts/memory/installer/core/paths.ps1 \
+            scripts/memory/installer/core/bridge.ps1 \
             scripts/memory/installer/features/memory_scaffold.ps1 \
             scripts/memory/installer/features/vector_setup.ps1 \
             scripts/memory/installer/features/mcp_setup.ps1 \

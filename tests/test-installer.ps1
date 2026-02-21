@@ -69,7 +69,18 @@ if (ShouldRun "scratch") {
   $dest = New-TestDir
   try {
     $r = Run-Installer $dest
-    $expectedDirs = @("\.cursor\memory", "\.cursor\rules", "\.cursor\memory\lessons", "\.cursor\memory\journal", "\.cursor\memory\templates", "scripts\memory")
+    $expectedDirs = @(
+      ".mnemo\memory",
+      ".mnemo\rules\cursor",
+      ".mnemo\rules\agent",
+      ".cursor\memory",
+      ".cursor\rules",
+      ".agent\rules",
+      ".mnemo\memory\lessons",
+      ".mnemo\memory\journal",
+      ".mnemo\memory\templates",
+      "scripts\memory"
+    )
     $allOk = $true
     foreach ($d in $expectedDirs) {
       if (!(Test-Path (Join-Path $dest $d))) {
@@ -78,12 +89,29 @@ if (ShouldRun "scratch") {
         break
       }
     }
-    $expectedFiles = @("\.cursor\memory\hot-rules.md", "\.cursor\memory\memo.md", "\.cursor\memory\active-context.md", "\.cursor\rules\00-memory-system.mdc", "scripts\memory\lint-memory.ps1")
+    $expectedFiles = @(
+      ".mnemo\memory\hot-rules.md",
+      ".mnemo\memory\memo.md",
+      ".mnemo\memory\active-context.md",
+      ".mnemo\rules\cursor\00-memory-system.mdc",
+      ".cursor\memory\hot-rules.md",
+      ".cursor\rules\00-memory-system.mdc",
+      ".agent\rules\memory-system.md",
+      "scripts\memory\lint-memory.ps1"
+    )
     foreach ($f in $expectedFiles) {
       if (!(Test-Path (Join-Path $dest $f))) {
         Write-Fail "scratch" "Missing file: $f"
         $allOk = $false
         break
+      }
+    }
+    if ($allOk) {
+      $canonicalHot = Get-Content -Raw (Join-Path $dest ".mnemo\memory\hot-rules.md")
+      $bridgeHot = Get-Content -Raw (Join-Path $dest ".cursor\memory\hot-rules.md")
+      if ($canonicalHot -ne $bridgeHot) {
+        Write-Fail "scratch" "Canonical and Cursor bridge hot-rules content differ"
+        $allOk = $false
       }
     }
     if ($allOk) { Write-Pass "scratch" }
@@ -173,6 +201,8 @@ if (ShouldRun "path-with-spaces") {
     $r = Run-Installer $dest
     if ($r.ExitCode -ne 0) {
       Write-Fail "path-with-spaces" "Installer exited with code $($r.ExitCode)"
+    } elseif (!(Test-Path (Join-Path $dest ".mnemo\memory\hot-rules.md"))) {
+      Write-Fail "path-with-spaces" "Expected canonical files not created in spaced path"
     } elseif (!(Test-Path (Join-Path $dest ".cursor\memory\hot-rules.md"))) {
       Write-Fail "path-with-spaces" "Expected files not created in spaced path"
     } else {
@@ -185,16 +215,18 @@ if (ShouldRun "path-with-spaces") {
 if (ShouldRun "malformed-mcp-json") {
   $dest = New-TestDir
   try {
-    # First do a clean install so .cursor dir exists
+    # First do a clean install so canonical + bridge dirs exist
     Run-Installer $dest | Out-Null
     # Write a corrupt mcp.json
     $mcpPath = Join-Path $dest ".cursor\mcp.json"
     [System.IO.File]::WriteAllText($mcpPath, "{ INVALID JSON !!!", [System.Text.Encoding]::UTF8)
-    # Run with EnableVector — installer should recover rather than crash
+    # Re-run (no vector required): bridge repair should not crash
     $r = Run-Installer $dest @("-Force")
-    # The run itself should succeed (exit 0) even if mcp.json parse warned
+    $canonicalMcp = Join-Path $dest ".mnemo\mcp\cursor.mcp.json"
     if ($r.ExitCode -ne 0) {
       Write-Fail "malformed-mcp-json" "Installer crashed with exit code $($r.ExitCode) on malformed mcp.json"
+    } elseif (!(Test-Path $canonicalMcp)) {
+      Write-Fail "malformed-mcp-json" "Canonical MCP bridge target was not created"
     } else {
       Write-Pass "malformed-mcp-json"
     }
@@ -226,9 +258,10 @@ if (ShouldRun "gitignore-dedup") {
     Run-Installer $dest @("-Force") | Out-Null
     $giPath = Join-Path $dest ".gitignore"
     $content = Get-Content $giPath -Raw -ErrorAction SilentlyContinue
-    $count = ([regex]::Matches($content, [regex]::Escape(".cursor/memory/memory.sqlite"))).Count
-    if ($count -gt 1) {
-      Write-Fail "gitignore-dedup" ".cursor/memory/memory.sqlite appears $count times in .gitignore"
+    $cursorCount = ([regex]::Matches($content, [regex]::Escape(".cursor/memory/memory.sqlite"))).Count
+    $mnemoCount = ([regex]::Matches($content, [regex]::Escape(".mnemo/memory/memory.sqlite"))).Count
+    if ($cursorCount -gt 1 -or $mnemoCount -gt 1) {
+      Write-Fail "gitignore-dedup" "Duplicate managed ignores (cursor=$cursorCount, mnemo=$mnemoCount)"
     } else {
       Write-Pass "gitignore-dedup"
     }
@@ -242,7 +275,7 @@ if (ShouldRun "version-in-output") {
     $expectedVersion = (Get-Content (Join-Path $RepoRoot "VERSION") -Raw).Trim()
     Run-Installer $dest | Out-Null
     # Only check monthly journal files (YYYY-MM.md), not README.md
-    $journalFiles = Get-ChildItem (Join-Path $dest ".cursor\memory\journal") -Filter "????-??.md" -ErrorAction SilentlyContinue
+    $journalFiles = Get-ChildItem (Join-Path $dest ".mnemo\memory\journal") -Filter "????-??.md" -ErrorAction SilentlyContinue
     $allOk = $true
     foreach ($jf in $journalFiles) {
       $content = Get-Content $jf.FullName -Raw
@@ -253,6 +286,52 @@ if (ShouldRun "version-in-output") {
       }
     }
     if ($allOk) { Write-Pass "version-in-output" }
+  } finally { Remove-TestDir $dest }
+}
+
+# ─── TEST: legacy-migration-bridge ────────────────────────────────────────────
+if (ShouldRun "legacy-migration-bridge") {
+  $dest = New-TestDir
+  try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $dest ".cursor\memory"), (Join-Path $dest ".cursor\rules"), (Join-Path $dest ".agent\rules") | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $dest ".cursor\memory\legacy-note.md"), "# legacy note", [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText((Join-Path $dest ".cursor\rules\legacy-rule.mdc"), "legacy cursor rule", [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText((Join-Path $dest ".agent\rules\legacy-agent.md"), "legacy agent rule", [System.Text.Encoding]::UTF8)
+
+    $r = Run-Installer $dest
+    if ($r.ExitCode -ne 0) {
+      Write-Fail "legacy-migration-bridge" "Installer exited with code $($r.ExitCode)"
+    } elseif (!(Test-Path (Join-Path $dest ".mnemo\memory\legacy-note.md"))) {
+      Write-Fail "legacy-migration-bridge" "Legacy memory file was not migrated to .mnemo"
+    } elseif (!(Test-Path (Join-Path $dest ".mnemo\rules\cursor\legacy-rule.mdc"))) {
+      Write-Fail "legacy-migration-bridge" "Legacy cursor rule was not migrated to .mnemo"
+    } elseif (!(Test-Path (Join-Path $dest ".mnemo\rules\agent\legacy-agent.md"))) {
+      Write-Fail "legacy-migration-bridge" "Legacy agent rule was not migrated to .mnemo"
+    } elseif (!(Test-Path (Join-Path $dest ".cursor\memory\legacy-note.md"))) {
+      Write-Fail "legacy-migration-bridge" "Legacy memory file is not visible via .cursor bridge"
+    } else {
+      Write-Pass "legacy-migration-bridge"
+    }
+  } finally { Remove-TestDir $dest }
+}
+
+# ─── TEST: bridge-repair-idempotent ───────────────────────────────────────────
+if (ShouldRun "bridge-repair-idempotent") {
+  $dest = New-TestDir
+  try {
+    Run-Installer $dest | Out-Null
+    $cursorMemory = Join-Path $dest ".cursor\memory"
+    if (Test-Path $cursorMemory) {
+      Remove-Item -Recurse -Force $cursorMemory -ErrorAction SilentlyContinue
+    }
+    $r = Run-Installer $dest
+    if ($r.ExitCode -ne 0) {
+      Write-Fail "bridge-repair-idempotent" "Installer exited with code $($r.ExitCode)"
+    } elseif (!(Test-Path (Join-Path $dest ".cursor\memory\hot-rules.md"))) {
+      Write-Fail "bridge-repair-idempotent" "Cursor bridge was not repaired after deletion"
+    } else {
+      Write-Pass "bridge-repair-idempotent"
+    }
   } finally { Remove-TestDir $dest }
 }
 

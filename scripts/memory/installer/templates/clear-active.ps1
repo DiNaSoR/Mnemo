@@ -12,7 +12,18 @@ if ($PSScriptRoot) {
   $RepoRoot = (Get-Location).Path
 }
 
-$ActivePath = Join-Path $RepoRoot ".cursor\memory\active-context.md"
+function Resolve-MnemoMemoryDir([string]$Root) {
+  $candidates = @(
+    (Join-Path $Root ".mnemo\memory"),
+    (Join-Path $Root ".cursor\memory")
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  }
+  return $candidates[0]
+}
+
+$ActivePath = Join-Path (Resolve-MnemoMemoryDir -Root $RepoRoot) "active-context.md"
 
 $Template = @"
 # Active Context (Session Scratchpad)

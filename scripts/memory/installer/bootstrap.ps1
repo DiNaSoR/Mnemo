@@ -11,6 +11,7 @@ $modulesBase = Join-Path $InstallerRoot "scripts\memory\installer"
 # Core layer
 . (Join-Path $modulesBase "core\io.ps1")
 . (Join-Path $modulesBase "core\paths.ps1")
+. (Join-Path $modulesBase "core\bridge.ps1")
 
 # Feature layer
 . (Join-Path $modulesBase "features\memory_scaffold.ps1")

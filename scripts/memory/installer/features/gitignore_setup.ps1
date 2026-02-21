@@ -13,9 +13,20 @@ function Update-MnemoGitignore {
   $giBeginMarker = "# >>> Mnemo (generated) - do not edit this block manually <<<"
   $giEndMarker   = "# <<< Mnemo (generated) >>>"
 
-  $ignoreLines = @(".cursor/memory/memory.sqlite")
+  $ignoreLines = @(
+    ".mnemo/memory/memory.sqlite",
+    ".cursor/memory/memory.sqlite",
+    ".mnemo/mcp/cursor.mcp.json",
+    ".cursor/mcp.json"
+  )
   if ($EnableVector) {
     $ignoreLines += @(
+      ".mnemo/memory/mnemo_vector.sqlite",
+      ".mnemo/memory/mnemo_vector.sqlite-journal",
+      ".mnemo/memory/mnemo_vector.sqlite-wal",
+      ".mnemo/memory/mnemo_vector.sqlite-shm",
+      ".mnemo/memory/.sync.lock",
+      ".mnemo/memory/.autonomy/",
       ".cursor/memory/mnemo_vector.sqlite",
       ".cursor/memory/mnemo_vector.sqlite-journal",
       ".cursor/memory/mnemo_vector.sqlite-wal",

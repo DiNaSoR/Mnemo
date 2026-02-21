@@ -66,6 +66,24 @@ $ctx = Initialize-MnemoPaths -RepoRoot $RepoRoot
 # Create directory structure
 foreach ($dir in $ctx.AllDirs) { New-MnemoDirectory -Path $dir }
 
+# Migrate legacy locations into canonical .mnemo store before scaffolding.
+if (-not $DryRun) {
+  $legacyPairs = @(
+    @{ Source = $ctx.CursorMemoryDir; Target = $ctx.MemoryDir; Label = ".cursor/memory -> .mnemo/memory" },
+    @{ Source = $ctx.CursorRulesDir;  Target = $ctx.RulesDir;  Label = ".cursor/rules -> .mnemo/rules/cursor" },
+    @{ Source = $ctx.AgentRulesDir;   Target = $ctx.MnemoRulesAgentDir; Label = ".agent/rules -> .mnemo/rules/agent" }
+  )
+  foreach ($pair in $legacyPairs) {
+    if (-not (Test-Path -LiteralPath $pair.Source)) { continue }
+    $sourceResolved = (Resolve-Path -LiteralPath $pair.Source -ErrorAction SilentlyContinue).Path
+    if ($sourceResolved -and (Test-MnemoPathEqual -A $sourceResolved -B $pair.Target)) { continue }
+    $copied = Copy-MnemoDirectoryContent -SourceDir $pair.Source -TargetDir $pair.Target
+    if ($copied -gt 0) {
+      Write-Host "Migrated $copied files ($($pair.Label))" -ForegroundColor Cyan
+    }
+  }
+}
+
 # Install memory content scaffold (hot-rules, memo, journal, rules, multi-agent bridges)
 Install-MemoryScaffold -Ctx $ctx -ProjectName $ProjectName -MnemoVersion $MnemoVersion -Force:$Force
 
@@ -84,6 +102,9 @@ if ($EnableVector) {
 
 # Git hooks (pre-commit lint/rebuild + optional post-commit vector sync)
 Install-GitHooks -Ctx $ctx -VectorPython $vectorPython -EnableVector:$EnableVector -Force:$Force
+
+# Bridge canonical .mnemo content into IDE integration locations.
+Ensure-MnemoCanonicalBridges -Ctx $ctx
 
 # Auto-configure portable hooks path (removes the manual 'git config' step)
 if (-not $DryRun -and (Test-Path $ctx.GitDir)) {
@@ -105,6 +126,7 @@ Write-Host ""
 Write-Host "Setup complete. (Mnemo v$MnemoVersion)" -ForegroundColor Green
 Write-Host ""
 Write-Host "Memory system installed to: $($ctx.MemoryDir)" -ForegroundColor Cyan
+Write-Host "Cursor bridge path:        $($ctx.CursorMemoryDir)" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Helper scripts:" -ForegroundColor Cyan
 Write-Host "  Add lesson:  scripts\memory\add-lesson.ps1 -Title ""..."" -Tags ""..."" -Rule ""...""" -ForegroundColor DarkGray

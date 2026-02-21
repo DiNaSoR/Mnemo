@@ -30,7 +30,11 @@ def _candidate_runtime_paths() -> list[Path]:
     out: list[Path] = []
     seen: set[str] = set()
     for root in roots:
-        for candidate in (root / "scripts" / "memory", root / ".cursor" / "memory" / "scripts"):
+        for candidate in (
+            root / "scripts" / "memory",
+            root / ".mnemo" / "memory" / "scripts",
+            root / ".cursor" / "memory" / "scripts",
+        ):
             key = str(candidate.resolve()) if candidate.exists() else str(candidate)
             if key in seen:
                 continue
@@ -56,7 +60,7 @@ def _normalize_ref(ref: str) -> str:
     """
     Normalize retrieval refs so fixtures and search backends compare consistently.
     Examples:
-    - '@.cursor/memory/lessons/index.md# L-001' -> 'lessons/index.md'
+    - '@.mnemo/memory/lessons/index.md# L-001' -> 'lessons/index.md'
     - 'scripts/memory/add-lesson.ps1' -> 'add-lesson.ps1'
     """
     if not ref:
@@ -64,7 +68,14 @@ def _normalize_ref(ref: str) -> str:
     s = ref.strip().replace("\\", "/").lstrip("@")
     s = s.split("#", 1)[0].strip().strip("`'\"")
 
-    for marker in (".cursor/memory/", "scripts/memory/installer/templates/", "scripts/memory/"):
+    for marker in (
+        ".mnemo/memory/",
+        ".cursor/memory/",
+        ".mnemo/rules/cursor/",
+        ".cursor/rules/",
+        "scripts/memory/installer/templates/",
+        "scripts/memory/",
+    ):
         idx = s.lower().find(marker)
         if idx >= 0:
             s = s[idx + len(marker) :]
@@ -212,6 +223,8 @@ class BenchmarkRunner:
         """
         docs: dict[str, list[str]] = {}
         roots: list[Path] = [
+            Path.cwd() / ".mnemo" / "memory",
+            Path.cwd() / ".mnemo" / "rules" / "cursor",
             Path.cwd() / ".cursor" / "memory",
             Path.cwd() / ".cursor" / "rules",
             Path.cwd() / "scripts" / "memory",

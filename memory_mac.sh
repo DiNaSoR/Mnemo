@@ -69,9 +69,26 @@ fi
 MONTH="$(date +%Y-%m)"
 TODAY="$(date +%Y-%m-%d)"
 
+# Canonical Mnemo identity root
+MNEMO_DIR="$REPO_ROOT/.mnemo"
+MNEMO_MEMORY_DIR="$MNEMO_DIR/memory"
+MNEMO_RULES_DIR="$MNEMO_DIR/rules"
+MNEMO_RULES_CURSOR_DIR="$MNEMO_RULES_DIR/cursor"
+MNEMO_RULES_AGENT_DIR="$MNEMO_RULES_DIR/agent"
+MNEMO_MCP_DIR="$MNEMO_DIR/mcp"
+MNEMO_CURSOR_MCP_PATH="$MNEMO_MCP_DIR/cursor.mcp.json"
+
+# IDE integration bridge targets
 CURSOR_DIR="$REPO_ROOT/.cursor"
-MEMORY_DIR="$CURSOR_DIR/memory"
-RULES_DIR="$CURSOR_DIR/rules"
+CURSOR_MEMORY_BRIDGE="$CURSOR_DIR/memory"
+CURSOR_RULES_BRIDGE="$CURSOR_DIR/rules"
+CURSOR_MCP_BRIDGE="$CURSOR_DIR/mcp.json"
+AGENT_DIR="$REPO_ROOT/.agent"
+AGENT_RULES_BRIDGE="$AGENT_DIR/rules"
+
+# Backward-compatible aliases used by script body (now canonicalized to .mnemo)
+MEMORY_DIR="$MNEMO_MEMORY_DIR"
+RULES_DIR="$MNEMO_RULES_CURSOR_DIR"
 JOURNAL_DIR="$MEMORY_DIR/journal"
 DIGESTS_DIR="$MEMORY_DIR/digests"
 ADR_DIR="$MEMORY_DIR/adr"
@@ -80,8 +97,12 @@ TEMPLATES_DIR="$MEMORY_DIR/templates"
 SCRIPTS_DIR="$REPO_ROOT/scripts"
 MEM_SCRIPTS_DIR="$SCRIPTS_DIR/memory"
 GITHOOKS_DIR="$REPO_ROOT/.githooks"
+AGENT_RULES_DIR="$MNEMO_RULES_AGENT_DIR"
 
-mkdir -p "$CURSOR_DIR" "$MEMORY_DIR" "$RULES_DIR" "$JOURNAL_DIR" "$DIGESTS_DIR" "$ADR_DIR" "$LESSONS_DIR" "$TEMPLATES_DIR" "$SCRIPTS_DIR" "$MEM_SCRIPTS_DIR" "$GITHOOKS_DIR"
+mkdir -p "$MNEMO_DIR" "$MNEMO_MEMORY_DIR" "$MNEMO_RULES_DIR" "$MNEMO_RULES_CURSOR_DIR" "$MNEMO_RULES_AGENT_DIR" "$MNEMO_MCP_DIR" \
+  "$CURSOR_DIR" "$AGENT_DIR" \
+  "$MEMORY_DIR" "$RULES_DIR" "$JOURNAL_DIR" "$DIGESTS_DIR" "$ADR_DIR" "$LESSONS_DIR" "$TEMPLATES_DIR" \
+  "$SCRIPTS_DIR" "$MEM_SCRIPTS_DIR" "$GITHOOKS_DIR"
 
 write_file() {
   # write_file <path> <stdin>
@@ -104,6 +125,140 @@ write_file() {
   mv "$tmp" "$path"
   printf '%s\n' "WROTE: $path"
 }
+
+sync_dir_one_way() {
+  src="$1"
+  dst="$2"
+  [ -d "$src" ] || return 0
+  mkdir -p "$dst"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "[DRY RUN] WOULD SYNC DIR: $src -> $dst"
+    return 0
+  fi
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --ignore-existing "$src/" "$dst/" >/dev/null 2>&1 || true
+  else
+    cp -R "$src/." "$dst/" 2>/dev/null || true
+  fi
+}
+
+ensure_dir_bridge() {
+  canonical="$1"
+  bridge="$2"
+  bridge_parent="$(dirname "$bridge")"
+  mkdir -p "$canonical" "$bridge_parent"
+
+  if [ -L "$bridge" ]; then
+    current_target="$(readlink "$bridge" 2>/dev/null || true)"
+    if [ "$current_target" = "$canonical" ]; then
+      printf '%s\n' "BRIDGE (linked): $bridge -> $canonical"
+      return 0
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+      printf '%s\n' "[DRY RUN] WOULD REPAIR BRIDGE: $bridge -> $canonical"
+      return 0
+    fi
+    rm -f "$bridge"
+  fi
+
+  if [ -e "$bridge" ] && [ ! -L "$bridge" ]; then
+    # Existing real directory: keep permanent mirror mode (no destructive removal).
+    sync_dir_one_way "$bridge" "$canonical"
+    sync_dir_one_way "$canonical" "$bridge"
+    printf '%s\n' "BRIDGE (mirror): $bridge <-> $canonical"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "[DRY RUN] WOULD CREATE SYMLINK: $bridge -> $canonical"
+    return 0
+  fi
+
+  if ln -s "$canonical" "$bridge" 2>/dev/null; then
+    printf '%s\n' "BRIDGE (symlink): $bridge -> $canonical"
+    return 0
+  fi
+
+  mkdir -p "$bridge"
+  sync_dir_one_way "$canonical" "$bridge"
+  printf '%s\n' "BRIDGE (mirror): $bridge <-> $canonical"
+}
+
+ensure_file_bridge() {
+  canonical="$1"
+  bridge="$2"
+  bridge_parent="$(dirname "$bridge")"
+  canonical_parent="$(dirname "$canonical")"
+  mkdir -p "$bridge_parent" "$canonical_parent"
+
+  if [ ! -f "$canonical" ] && [ -f "$bridge" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      printf '%s\n' "[DRY RUN] WOULD COPY FILE: $bridge -> $canonical"
+    else
+      cp "$bridge" "$canonical"
+    fi
+  fi
+  [ -f "$canonical" ] || return 0
+
+  if [ -L "$bridge" ]; then
+    current_target="$(readlink "$bridge" 2>/dev/null || true)"
+    if [ "$current_target" = "$canonical" ]; then
+      printf '%s\n' "BRIDGE (linked): $bridge -> $canonical"
+      return 0
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+      printf '%s\n' "[DRY RUN] WOULD REPAIR FILE BRIDGE: $bridge -> $canonical"
+      return 0
+    fi
+    rm -f "$bridge"
+  fi
+
+  if [ -e "$bridge" ] && [ ! -L "$bridge" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      printf '%s\n' "[DRY RUN] WOULD MIRROR FILE: $canonical <-> $bridge"
+      return 0
+    fi
+    if [ "$bridge" -nt "$canonical" ]; then
+      cp "$bridge" "$canonical"
+    fi
+    cp "$canonical" "$bridge"
+    printf '%s\n' "BRIDGE (mirror): $bridge <-> $canonical"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "[DRY RUN] WOULD CREATE FILE SYMLINK: $bridge -> $canonical"
+    return 0
+  fi
+  if ln -s "$canonical" "$bridge" 2>/dev/null; then
+    printf '%s\n' "BRIDGE (symlink): $bridge -> $canonical"
+    return 0
+  fi
+  cp "$canonical" "$bridge"
+  printf '%s\n' "BRIDGE (mirror): $bridge <-> $canonical"
+}
+
+ensure_mnemo_bridges() {
+  ensure_dir_bridge "$MNEMO_MEMORY_DIR" "$CURSOR_MEMORY_BRIDGE"
+  ensure_dir_bridge "$MNEMO_RULES_CURSOR_DIR" "$CURSOR_RULES_BRIDGE"
+  ensure_dir_bridge "$MNEMO_RULES_AGENT_DIR" "$AGENT_RULES_BRIDGE"
+  if [ -f "$MNEMO_CURSOR_MCP_PATH" ] || [ -f "$CURSOR_MCP_BRIDGE" ]; then
+    ensure_file_bridge "$MNEMO_CURSOR_MCP_PATH" "$CURSOR_MCP_BRIDGE"
+  fi
+}
+
+# Migrate legacy paths into canonical .mnemo before generating files.
+if [ "$DRY_RUN" != "1" ]; then
+  if [ -d "$CURSOR_MEMORY_BRIDGE" ] && [ ! -L "$CURSOR_MEMORY_BRIDGE" ]; then
+    sync_dir_one_way "$CURSOR_MEMORY_BRIDGE" "$MNEMO_MEMORY_DIR"
+  fi
+  if [ -d "$CURSOR_RULES_BRIDGE" ] && [ ! -L "$CURSOR_RULES_BRIDGE" ]; then
+    sync_dir_one_way "$CURSOR_RULES_BRIDGE" "$MNEMO_RULES_CURSOR_DIR"
+  fi
+  if [ -d "$AGENT_RULES_BRIDGE" ] && [ ! -L "$AGENT_RULES_BRIDGE" ]; then
+    sync_dir_one_way "$AGENT_RULES_BRIDGE" "$MNEMO_RULES_AGENT_DIR"
+  fi
+fi
 
 # -------------------------
 # Memory files
@@ -409,7 +564,6 @@ EOF
 # Multi-agent bridge files
 # -------------------------
 
-AGENT_RULES_DIR="$REPO_ROOT/.agent/rules"
 mkdir -p "$AGENT_RULES_DIR"
 
 write_file "$REPO_ROOT/CLAUDE.md" <<'EOF'
@@ -1398,11 +1552,20 @@ echo "[Mnemo] Rebuilding indexes + lint..."
 sh "./scripts/memory/rebuild-memory-index.sh"
 sh "./scripts/memory/lint-memory.sh"
 
-git add .cursor/memory/lessons/index.md 2>/dev/null || true
-git add .cursor/memory/lessons-index.json 2>/dev/null || true
-git add .cursor/memory/journal-index.md 2>/dev/null || true
-git add .cursor/memory/journal-index.json 2>/dev/null || true
-git add .cursor/memory/digests/*.digest.md 2>/dev/null || true
+for p in \
+  .mnemo/memory/lessons/index.md \
+  .mnemo/memory/lessons-index.json \
+  .mnemo/memory/journal-index.md \
+  .mnemo/memory/journal-index.json \
+  .mnemo/memory/digests/*.digest.md \
+  .cursor/memory/lessons/index.md \
+  .cursor/memory/lessons-index.json \
+  .cursor/memory/journal-index.md \
+  .cursor/memory/journal-index.json \
+  .cursor/memory/digests/*.digest.md
+do
+  git add $p 2>/dev/null || true
+done
 exit 0
 EOF
 
@@ -1674,7 +1837,9 @@ PY
   # Use template file if running from Mnemo installer repo; else use embedded copy
   _vector_tpl="$_INSTALLER_DIR/scripts/memory/installer/templates/mnemo_vector.py"
   if [ -f "$_vector_tpl" ]; then
-    if [ -f "$MEM_SCRIPTS_DIR/mnemo_vector.py" ] && [ "$FORCE" != "1" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      echo "[DRY RUN] WOULD WRITE: $MEM_SCRIPTS_DIR/mnemo_vector.py"
+    elif [ -f "$MEM_SCRIPTS_DIR/mnemo_vector.py" ] && [ "$FORCE" != "1" ]; then
       echo "SKIP (exists): $MEM_SCRIPTS_DIR/mnemo_vector.py"
     else
       cp "$_vector_tpl" "$MEM_SCRIPTS_DIR/mnemo_vector.py"
@@ -2044,7 +2209,7 @@ If vector search is unavailable, keep using:
 EOF
 
   if [ "$DRY_RUN" != "1" ]; then
-  mcp_status="$(python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" "$FORCE" <<'PY'
+  mcp_status="$(python3 - "$REPO_ROOT" "$VECTOR_PROVIDER" "$FORCE" "$MNEMO_CURSOR_MCP_PATH" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -2052,7 +2217,7 @@ from pathlib import Path
 repo = Path(sys.argv[1])
 provider = sys.argv[2]
 force = sys.argv[3] == "1"
-mcp_path = repo / ".cursor" / "mcp.json"
+mcp_path = Path(sys.argv[4])
 engine = str((repo / "scripts" / "memory" / "mnemo_vector.py").resolve())
 
 root = {}
@@ -2095,9 +2260,9 @@ print("UPDATED")
 PY
 )"
     if [ "$mcp_status" = "UNCHANGED" ]; then
-      echo "SKIP (exists): $CURSOR_DIR/mcp.json (MnemoVector MCP unchanged)"
+      echo "SKIP (exists): $MNEMO_CURSOR_MCP_PATH (MnemoVector MCP unchanged)"
     else
-      echo "WROTE: $CURSOR_DIR/mcp.json"
+      echo "WROTE: $MNEMO_CURSOR_MCP_PATH"
     fi
 
     post_hook="$GITHOOKS_DIR/post-commit"
@@ -2128,7 +2293,10 @@ fi
 
 $api_guard
 
-LOCKDIR="\$ROOT/.cursor/memory/.sync.lock"
+LOCKDIR="\$ROOT/.mnemo/memory/.sync.lock"
+if [ ! -d "\$ROOT/.mnemo/memory" ] && [ -d "\$ROOT/.cursor/memory" ]; then
+  LOCKDIR="\$ROOT/.cursor/memory/.sync.lock"
+fi
 if [ -d "\$LOCKDIR" ]; then
   NOW=\$(date +%s 2>/dev/null || echo 0)
   MTIME=\$(stat -f %m "\$LOCKDIR" 2>/dev/null || stat -c %Y "\$LOCKDIR" 2>/dev/null || echo 0)
@@ -2166,7 +2334,7 @@ EOF
       fi
     fi
   else
-    echo "[DRY RUN] WOULD WRITE: $CURSOR_DIR/mcp.json"
+    echo "[DRY RUN] WOULD WRITE: $MNEMO_CURSOR_MCP_PATH"
     echo "[DRY RUN] WOULD CONFIGURE: $GITHOOKS_DIR/post-commit (MnemoVector wrapper)"
   fi
 fi
@@ -2176,9 +2344,18 @@ gi="$REPO_ROOT/.gitignore"
 GI_BEGIN="# >>> Mnemo (generated) - do not edit this block manually <<<"
 GI_END="# <<< Mnemo (generated) >>>"
 
-ignore_lines=".cursor/memory/memory.sqlite"
+ignore_lines=".mnemo/memory/memory.sqlite
+.cursor/memory/memory.sqlite
+.mnemo/mcp/cursor.mcp.json
+.cursor/mcp.json"
 if [ "$ENABLE_VECTOR" = "1" ]; then
   ignore_lines="$ignore_lines
+.mnemo/memory/mnemo_vector.sqlite
+.mnemo/memory/mnemo_vector.sqlite-journal
+.mnemo/memory/mnemo_vector.sqlite-wal
+.mnemo/memory/mnemo_vector.sqlite-shm
+.mnemo/memory/.sync.lock
+.mnemo/memory/.autonomy/
 .cursor/memory/mnemo_vector.sqlite
 .cursor/memory/mnemo_vector.sqlite-journal
 .cursor/memory/mnemo_vector.sqlite-wal
@@ -2215,6 +2392,9 @@ $GI_END"
     echo "Added Mnemo managed block to .gitignore"
   fi
 fi
+
+# Ensure permanent compatibility bridges are present and healthy.
+ensure_mnemo_bridges
 
 chmod +x "$MEM_SCRIPTS_DIR/"*.sh "$GITHOOKS_DIR/pre-commit" "$GITHOOKS_DIR/post-commit" 2>/dev/null || true
 

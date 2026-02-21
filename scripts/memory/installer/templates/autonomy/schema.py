@@ -14,17 +14,25 @@ SCHEMA_VERSION = 2
 EMBED_DIM = int(os.getenv("MNEMO_EMBED_DIM", "1536"))
 
 
+def _memory_root() -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    for root in (cwd, *cwd.parents):
+        for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+            candidate = root.joinpath(*rel)
+            if candidate.exists():
+                return candidate
+    return cwd / ".mnemo" / "memory"
+
+
 def _db_path() -> Path:
-    cwd = Path.cwd()
-    candidate = cwd / ".cursor" / "memory" / "mnemo_vector.sqlite"
-    if candidate.exists():
-        return candidate
-    # Walk up to find it
-    for parent in cwd.parents:
-        c = parent / ".cursor" / "memory" / "mnemo_vector.sqlite"
-        if c.exists():
-            return c
-    return cwd / ".cursor" / "memory" / "mnemo_vector.sqlite"
+    db_override = os.getenv("MNEMO_DB_PATH", "").strip()
+    if db_override:
+        return Path(db_override).expanduser().resolve()
+    return _memory_root() / "mnemo_vector.sqlite"
 
 
 def get_db(db_path: Path | None = None, timeout: float = 30.0) -> sqlite3.Connection:

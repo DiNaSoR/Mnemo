@@ -12,11 +12,11 @@ function Install-McpConfig {
   )
 
   if ($script:DryRun) {
-    Write-Host "[DRY RUN] WOULD CONFIGURE: .cursor/mcp.json (MnemoVector MCP)" -ForegroundColor DarkCyan
+    Write-Host "[DRY RUN] WOULD CONFIGURE: .mnemo/mcp/cursor.mcp.json (+ .cursor/mcp.json bridge)" -ForegroundColor DarkCyan
     return
   }
 
-  $mcpPath = Join-Path $Ctx.CursorDir "mcp.json"
+  $mcpPath = $Ctx.MnemoCursorMcpPath
   $engineAbsPath = (Resolve-Path (Join-Path $Ctx.MemScripts "mnemo_vector.py")).Path
   $mcpRoot = [ordered]@{}
 
@@ -81,4 +81,7 @@ function Install-McpConfig {
     Move-Item -Path $mcpTmp -Destination $mcpPath -Force
     Write-Host "WROTE: $mcpPath" -ForegroundColor Green
   }
+
+  # Keep Cursor integration path in sync as a bridge target.
+  Ensure-MnemoFileBridge -CanonicalPath $mcpPath -BridgePath $Ctx.CursorMcpPath | Out-Null
 }

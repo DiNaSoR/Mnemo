@@ -2,7 +2,7 @@
 """
 ingest_pipeline.py - Autonomous ingestion and chunking with typed metadata.
 
-Detects changed .md files in .cursor/memory/, chunks them with context-aware
+Detects changed .md files in .mnemo/memory/ (with bridge fallback), chunks them with context-aware
 splitting, classifies memory type, and upserts into the DB as memory_units
 with full metadata (authority, time_scope, sensitivity, entity_tags).
 """
@@ -22,6 +22,21 @@ SKIP_NAMES = frozenset({"README.md", "index.md", "lessons-index.json",
                         "journal-index.json", "journal-index.md"})
 SKIP_DIRS = frozenset({"legacy", "templates"})
 MAX_CHUNK_CHARS = 10000
+
+
+def _resolve_memory_root(repo_root: Path) -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    candidates = [
+        repo_root / ".mnemo" / "memory",
+        repo_root / ".cursor" / "memory",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 AUTHORITY_WEIGHTS: dict[str, float] = {
@@ -141,7 +156,7 @@ class IngestPipeline:
     def __init__(self, db: Optional[sqlite3.Connection] = None, repo_root: Optional[Path] = None):
         self.db = db or get_db()
         self.repo_root = repo_root or Path.cwd()
-        self.mem_root = self.repo_root / ".cursor" / "memory"
+        self.mem_root = _resolve_memory_root(self.repo_root)
 
     def detect_changes(self) -> list[Path]:
         """Return list of .md files that have changed hash."""

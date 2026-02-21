@@ -90,7 +90,18 @@ function Parse-Frontmatter([string]$FilePath) {
   return $result
 }
 
-$MemoryDir  = Join-Path $RepoRoot ".cursor\memory"
+function Resolve-MnemoMemoryDir([string]$Root) {
+  $candidates = @(
+    (Join-Path $Root ".mnemo\memory"),
+    (Join-Path $Root ".cursor\memory")
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  }
+  return $candidates[0]
+}
+
+$MemoryDir  = Resolve-MnemoMemoryDir -Root $RepoRoot
 $LessonsDir = Join-Path $MemoryDir "lessons"
 $JournalDir = Join-Path $MemoryDir "journal"
 $DigestsDir = Join-Path $MemoryDir "digests"
@@ -200,7 +211,7 @@ foreach ($jf in $journalFiles) {
   $digest = @()
   $digest += "# Monthly Digest - $monthName (generated)"; $digest += ""
   $digest += "Generated: $gen"; $digest += ""
-  $digest += "Token-cheap summary. See ``.cursor/memory/journal/$($jf.Name)`` for details."; $digest += ""
+  $digest += "Token-cheap summary. See ``.mnemo/memory/journal/$($jf.Name)`` for details."; $digest += ""
 
   $dates = [regex]::Matches($text, '(?m)^##\s+(\d{4}-\d{2}-\d{2}).*$') | ForEach-Object { $_.Groups[1].Value }
   $uniqueDates = $dates | Select-Object -Unique

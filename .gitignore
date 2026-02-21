@@ -1,14 +1,24 @@
-# Cursor Memory System (generated)
-.cursor/memory/memory.sqlite
+# Mnemo canonical memory artifacts (generated)
+.mnemo/memory/memory.sqlite
 
 # Mnemo vector artifacts
+.mnemo/memory/mnemo_vector.sqlite
+.mnemo/memory/mnemo_vector.sqlite-journal
+.mnemo/memory/mnemo_vector.sqlite-wal
+.mnemo/memory/mnemo_vector.sqlite-shm
+.mnemo/memory/.sync.lock
+.mnemo/memory/.autonomy/
+
+# Cursor bridge compatibility artifacts
+.cursor/memory/memory.sqlite
 .cursor/memory/mnemo_vector.sqlite
 .cursor/memory/mnemo_vector.sqlite-journal
 .cursor/memory/mnemo_vector.sqlite-wal
 .cursor/memory/mnemo_vector.sqlite-shm
 .cursor/memory/.sync.lock
 
-# Local Cursor MCP wiring
+# Local MCP wiring
+.mnemo/mcp/cursor.mcp.json
 .cursor/mcp.json
 
 __pycache__/

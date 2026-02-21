@@ -5,6 +5,17 @@ import sqlite3
 from pathlib import Path
 
 
+def resolve_memory_dir(repo: Path) -> Path:
+    candidates = [
+        repo / ".mnemo" / "memory",
+        repo / ".cursor" / "memory",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
@@ -14,7 +25,7 @@ def main():
     args = ap.parse_args()
 
     repo = Path(args.repo)
-    db = repo / ".cursor" / "memory" / "memory.sqlite"
+    db = resolve_memory_dir(repo) / "memory.sqlite"
     if not db.exists():
         print("SQLite DB not found. Run rebuild-memory-index.ps1 first.")
         return 2

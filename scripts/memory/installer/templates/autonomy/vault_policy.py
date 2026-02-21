@@ -10,13 +10,29 @@ Handles:
 """
 import re
 import sqlite3
+import os
 import yaml
 from pathlib import Path
 from typing import Optional
 
 from autonomy.schema import get_db
 
-DEFAULT_POLICY_PATH = Path(".cursor/memory/.autonomy/policies.yaml")
+
+def _resolve_memory_root() -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    for root in (cwd, *cwd.parents):
+        for rel in ((".mnemo", "memory"), (".cursor", "memory")):
+            candidate = root.joinpath(*rel)
+            if candidate.exists():
+                return candidate
+    return cwd / ".mnemo" / "memory"
+
+
+DEFAULT_POLICY_PATH = _resolve_memory_root() / ".autonomy" / "policies.yaml"
 _POLICY_CACHE: dict | None = None
 
 # Built-in secret patterns (supplemented by policies.yaml)
@@ -37,8 +53,8 @@ def load_policy(policy_path: Path = DEFAULT_POLICY_PATH) -> dict:
 
     defaults = {
         "sensitivity_paths": {
-            "secret": [".cursor/memory/vault/", ".env", "*.secret.*"],
-            "internal": [".cursor/memory/active-context.md"],
+            "secret": [".mnemo/memory/vault/", ".cursor/memory/vault/", ".env", "*.secret.*"],
+            "internal": [".mnemo/memory/active-context.md", ".cursor/memory/active-context.md"],
         },
         "redaction_patterns": [],
         "allow_internal_for_roles": ["agent", "autonomous"],

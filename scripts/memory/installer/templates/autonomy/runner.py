@@ -8,7 +8,7 @@ Triggered by:
   - Direct invocation: python runner.py [--mode {auto|schedule|once}]
 
 Responsibilities:
-  1. Change detection on .cursor/memory/**/*.md
+  1. Change detection on .mnemo/memory/**/*.md (with .cursor bridge compatibility)
   2. Ingest and chunk changed files
   3. Metadata classification + entity resolution
   4. Fact lifecycle (ADD/UPDATE/DEPRECATE/NOOP)
@@ -37,36 +37,59 @@ from autonomy.lifecycle_engine import LifecycleEngine
 from autonomy.entity_resolver import EntityResolver
 
 
-LOCK_PATH = Path(".cursor/memory/.autonomy/runner.lock")
+LOCK_PATH: Path | None = None
 STATE_KEY_LAST_RUN = "last_run_ts"
 STATE_KEY_CYCLE = "cycle_count"
 SCHEDULE_INTERVAL_S = int(os.getenv("MNEMO_SCHEDULE_INTERVAL", "300"))  # 5 min default
 MAX_LOCK_AGE_S = 600  # stale lock timeout
 
 
+def resolve_memory_root(repo_root: Path) -> Path:
+    override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    candidates = [
+        repo_root / ".mnemo" / "memory",
+        repo_root / ".cursor" / "memory",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _require_lock_path() -> Path:
+    if LOCK_PATH is None:
+        raise RuntimeError("LOCK_PATH is not initialized")
+    return LOCK_PATH
+
+
 def _acquire_lock() -> bool:
-    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if LOCK_PATH.exists():
+    lock_path = _require_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if lock_path.exists():
         try:
-            mtime = LOCK_PATH.stat().st_mtime
+            mtime = lock_path.stat().st_mtime
             age = time.time() - mtime
             if age < MAX_LOCK_AGE_S:
                 return False
             # Stale lock — remove and proceed
-            LOCK_PATH.unlink()
+            lock_path.unlink()
         except OSError:
             return False
     try:
-        LOCK_PATH.write_text(str(os.getpid()), encoding="utf-8")
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
         return True
     except OSError:
         return False
 
 
 def _release_lock() -> None:
+    lock_path = _require_lock_path()
     try:
-        if LOCK_PATH.exists():
-            LOCK_PATH.unlink()
+        if lock_path.exists():
+            lock_path.unlink()
     except OSError:
         pass
 
@@ -154,7 +177,7 @@ def _write_autonomy_journal_delta(repo_root: Path, summary: dict) -> None:
     """Write an autonomous journal entry summarizing the cycle."""
     today = datetime.now().strftime("%Y-%m-%d")
     month = today[:7]
-    journal_path = repo_root / ".cursor" / "memory" / "journal" / f"{month}.md"
+    journal_path = resolve_memory_root(repo_root) / "journal" / f"{month}.md"
     journal_path.parent.mkdir(parents=True, exist_ok=True)
 
     facts_line = f"{summary['facts_added']} facts added"
@@ -223,6 +246,8 @@ def main() -> int:
 
     repo_root = Path(args.repo).resolve()
     os.chdir(repo_root)
+    global LOCK_PATH
+    LOCK_PATH = resolve_memory_root(repo_root) / ".autonomy" / "runner.lock"
 
     if args.mode == "schedule":
         run_schedule(repo_root)

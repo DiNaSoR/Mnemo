@@ -5,12 +5,14 @@
 # Sensitivity classification rules (applied in order: secret > internal > public)
 sensitivity_paths:
   secret:
+    - ".mnemo/memory/vault/"
     - ".cursor/memory/vault/"
     - ".env"
     - "*.secret.*"
     - "*credentials*"
     - "*private-key*"
   internal:
+    - ".mnemo/memory/active-context.md"
     - ".cursor/memory/active-context.md"
 
 # Additional regex redaction patterns (applied on top of built-ins)

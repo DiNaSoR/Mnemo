@@ -10,13 +10,24 @@ def read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8-sig", errors="replace")
 
 
+def resolve_memory_dir(repo: Path) -> Path:
+    candidates = [
+        repo / ".mnemo" / "memory",
+        repo / ".cursor" / "memory",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     args = ap.parse_args()
 
     repo = Path(args.repo)
-    mem = repo / ".cursor" / "memory"
+    mem = resolve_memory_dir(repo)
     out_db = mem / "memory.sqlite"
 
     lessons_index = mem / "lessons-index.json"

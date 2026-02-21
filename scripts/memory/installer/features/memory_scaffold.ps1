@@ -455,7 +455,7 @@ Memory location: ``.cursor/memory/``
 - Clear active-context.md when task is merged
 "@
 
-  Write-MnemoFile (Join-Path $Ctx.AgentRulesDir "memory-system.md") $geminiRule -ForceWrite:$Force
+  Write-MnemoFile (Join-Path $Ctx.MnemoRulesAgentDir "memory-system.md") $geminiRule -ForceWrite:$Force
   Write-MnemoFile (Join-Path $Ctx.RepoRoot "AGENTS.md") $agentsMd -ForceWrite:$Force
 
   Write-Host "`nMemory scaffold installed." -ForegroundColor Cyan

@@ -31,11 +31,20 @@ else
   echo "[Mnemo] PowerShell not found; skipping memory rebuild/lint."
 fi
 
-git add .cursor/memory/lessons/index.md 2>/dev/null || true
-git add .cursor/memory/lessons-index.json 2>/dev/null || true
-git add .cursor/memory/journal-index.md 2>/dev/null || true
-git add .cursor/memory/journal-index.json 2>/dev/null || true
-git add .cursor/memory/digests/*.digest.md 2>/dev/null || true
+for p in \
+  .mnemo/memory/lessons/index.md \
+  .mnemo/memory/lessons-index.json \
+  .mnemo/memory/journal-index.md \
+  .mnemo/memory/journal-index.json \
+  .mnemo/memory/digests/*.digest.md \
+  .cursor/memory/lessons/index.md \
+  .cursor/memory/lessons-index.json \
+  .cursor/memory/journal-index.md \
+  .cursor/memory/journal-index.json \
+  .cursor/memory/digests/*.digest.md
+do
+  git add $p 2>/dev/null || true
+done
 
 exit 0
 '@
@@ -97,7 +106,10 @@ fi
 
 $apiGuard
 
-LOCKDIR="`$ROOT/.cursor/memory/.sync.lock"
+LOCKDIR="`$ROOT/.mnemo/memory/.sync.lock"
+if [ ! -d "`$ROOT/.mnemo/memory" ] && [ -d "`$ROOT/.cursor/memory" ]; then
+  LOCKDIR="`$ROOT/.cursor/memory/.sync.lock"
+fi
 if [ -d "`$LOCKDIR" ]; then
   NOW=`$(date +%s 2>/dev/null || echo 0)
   MTIME=`$(stat -c %Y "`$LOCKDIR" 2>/dev/null || stat -f %m "`$LOCKDIR" 2>/dev/null || echo 0)
