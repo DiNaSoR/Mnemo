@@ -7,7 +7,7 @@ on:
     inputs:
       fail_on_regression:
         description: "Fail if quality regression detected"
-        default: "true"
+        default: true
         type: boolean
 
 permissions:
