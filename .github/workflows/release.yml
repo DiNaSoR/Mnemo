@@ -3,13 +3,17 @@ name: Release
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v*"
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # ─── Pre-flight checks ────────────────────────────────────────────────────────
+  # ─── Pre-flight checks ──────────────────────────────────────────────────────
   preflight:
     name: Pre-flight checks
     runs-on: ubuntu-latest
@@ -18,21 +22,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Extract version from tag
+      - name: Extract and validate version from tag
         id: version
         run: |
           TAG="${GITHUB_REF_NAME}"
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: tag '$TAG' is not a valid release tag (expected vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Tag: $TAG  ->  Version: $VERSION"
+          echo "Tag: $TAG -> Version: $VERSION"
 
       - name: Verify VERSION file matches tag
         run: |
-          FILE_VER="$(cat VERSION | tr -d '[:space:]')"
+          FILE_VER="$(tr -d '[:space:]' < VERSION)"
           TAG_VER="${{ steps.version.outputs.version }}"
           if [ "$FILE_VER" != "$TAG_VER" ]; then
             echo "ERROR: VERSION file ($FILE_VER) does not match git tag ($TAG_VER)"
-            echo "Update the VERSION file and push a new tag."
+            echo "Update VERSION and push a new release tag."
             exit 1
           fi
 
@@ -41,11 +49,11 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           if ! grep -qF "## [$VERSION]" CHANGELOG.md; then
             echo "ERROR: CHANGELOG.md has no entry for version $VERSION"
-            echo "Add a ## [$VERSION] section before creating a release tag."
+            echo "Add a ## [$VERSION] section before creating the release tag."
             exit 1
           fi
 
-  # ─── Run CI tests before publishing ─────────────────────────────────────────
+  # ─── Run regression tests before publishing ────────────────────────────────
   test-windows:
     name: Test Windows
     needs: preflight
@@ -55,12 +63,16 @@ jobs:
       - name: Run regression tests
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
+      - name: Run modularization guard tests
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
 
   test-posix:
     name: Test POSIX (${{ matrix.os }})
     needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest]
     steps:
@@ -68,25 +80,85 @@ jobs:
       - name: Run regression tests
         run: sh ./tests/test-installer.sh
 
-  # ─── Publish GitHub release ───────────────────────────────────────────────────
-  publish:
-    name: Publish release
-    needs: [preflight, test-windows, test-posix]
+  autonomy-syntax:
+    name: Autonomy module syntax (py3)
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal deps for syntax check
+        run: pip install --quiet pyyaml
+
+      - name: Syntax check autonomy and retrieval Python files
+        run: |
+          failed=0
+          for f in scripts/memory/installer/templates/autonomy/*.py; do
+            if ! python3 -m py_compile "$f" 2>&1; then
+              echo "SYNTAX ERROR: $f"
+              failed=1
+            fi
+          done
+          if [ -f scripts/memory/installer/templates/mnemo_vector.py ]; then
+            python3 -m py_compile scripts/memory/installer/templates/mnemo_vector.py
+          fi
+          for f in tests/retrieval/*.py; do
+            if ! python3 -m py_compile "$f" 2>&1; then
+              echo "SYNTAX ERROR: $f"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All Python files pass syntax check"
+
+  # ─── Publish GitHub release ────────────────────────────────────────────────
+  publish:
+    name: Publish release
+    needs: [preflight, test-windows, test-posix, autonomy-syntax]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify release artifacts exist
+        run: |
+          for f in memory.ps1 memory_mac.sh VERSION CHANGELOG.md; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: required release artifact missing: $f"
+              exit 1
+            fi
+          done
+
       - name: Extract changelog section for this release
-        id: changelog
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
-          # Extract the section between ## [VERSION] and the next ## [
+          # Extract lines between ## [VERSION] and the next ## [ header.
           awk -v ver="$VERSION" '
-            /^## \[/ { if (found) exit; if (index($0, "["ver"]") > 0) found=1; next }
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]") > 0) { found=1; next }
+            }
             found { print }
           ' CHANGELOG.md > release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "ERROR: extracted release notes are empty for version $VERSION"
+            exit 1
+          fi
+
           echo "Release notes:"
           cat release_notes.md
+
+      - name: Generate release checksums
+        run: |
+          sha256sum memory.ps1 memory_mac.sh VERSION > checksums.txt
+          cat checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -97,5 +169,6 @@ jobs:
             memory.ps1
             memory_mac.sh
             VERSION
+            checksums.txt
           draft: false
           prerelease: false
