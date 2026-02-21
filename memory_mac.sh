@@ -2413,8 +2413,19 @@ if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
   _autonomy_dest="$MEM_SCRIPTS_DIR/autonomy"
   mkdir -p "$_autonomy_dest"
   if [ -d "$_autonomy_tpl" ]; then
-    cp -r "$_autonomy_tpl/." "$_autonomy_dest/" 2>/dev/null || true
-    echo "WROTE: $MEM_SCRIPTS_DIR/autonomy/ (autonomy runtime modules)"
+    _autonomy_missing=0
+    for _f in __init__.py schema.py runner.py ingest_pipeline.py lifecycle_engine.py entity_resolver.py retrieval_router.py reranker.py context_safety.py vault_policy.py policies.yaml; do
+      if [ ! -f "$_autonomy_dest/$_f" ]; then
+        _autonomy_missing=1
+        break
+      fi
+    done
+    if [ "$FORCE" = "1" ] || [ "$_autonomy_missing" = "1" ]; then
+      cp -r "$_autonomy_tpl/." "$_autonomy_dest/" 2>/dev/null || true
+      echo "WROTE: $MEM_SCRIPTS_DIR/autonomy/ (autonomy runtime modules)"
+    else
+      echo "SKIP (exists): $MEM_SCRIPTS_DIR/autonomy/ (autonomy runtime modules)"
+    fi
   fi
 fi
 
