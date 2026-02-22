@@ -51,9 +51,22 @@ function Remove-TestDir([string]$path) {
 }
 
 function Run-Installer([string]$dest, [string[]]$extraArgs = @()) {
-  $args = @("-ExecutionPolicy", "Bypass", "-File", $InstallerPath, "-RepoRoot", $dest, "-ProjectName", "TestProject") + $extraArgs
-  $result = & powershell @args 2>&1
-  return @{ Output = ($result -join "`n"); ExitCode = $LASTEXITCODE }
+  $installerArgs = @("-ExecutionPolicy", "Bypass", "-File", $InstallerPath, "-RepoRoot", $dest, "-ProjectName", "TestProject") + $extraArgs
+  # Temporarily relax error preference so a non-zero exit from the inner
+  # powershell process (or any native-command stderr write in PS 7.3+)
+  # does not terminate the test suite via NativeCommandError.
+  $savedEAP = $ErrorActionPreference
+  $ErrorActionPreference = "SilentlyContinue"
+  try {
+    $result = & powershell @installerArgs 2>&1
+    $ec     = $LASTEXITCODE
+  } catch {
+    $result = @($_.ToString())
+    $ec     = 1
+  } finally {
+    $ErrorActionPreference = $savedEAP
+  }
+  return @{ Output = ($result -join "`n"); ExitCode = $ec }
 }
 
 function ShouldRun([string]$name) {
