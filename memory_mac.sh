@@ -1862,6 +1862,17 @@ def _resolve_memory_root() -> Path:
     return script_repo / ".mnemo" / "memory"
 
 
+def _resolve_repo_root(memory_root: Path) -> Path:
+    root = memory_root.resolve()
+    if root.name == "memory" and root.parent.name in {".mnemo", ".cursor"}:
+        return root.parent.parent
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        if candidate.joinpath(".mnemo", "memory").exists() or candidate.joinpath(".cursor", "memory").exists():
+            return candidate
+    return cwd
+
+
 def _parse_env_line(raw_line: str):
     line = raw_line.strip()
     if not line or line.startswith("#"):
@@ -1882,10 +1893,26 @@ def _parse_env_line(raw_line: str):
     return key, value
 
 
-def _load_project_env() -> None:
-    if os.getenv("GEMINI_API_KEY"):
-        return
-    env_path = Path(".env")
+def _is_missing_env_value(value):
+    if value is None:
+        return True
+    stripped = str(value).strip()
+    if not stripped:
+        return True
+    if stripped.startswith("${env:") and stripped.endswith("}"):
+        return True
+    return False
+
+
+def _get_env_value(name: str) -> str:
+    value = os.getenv(name)
+    if _is_missing_env_value(value):
+        return ""
+    return str(value).strip()
+
+
+def _load_project_env(repo_root: Path) -> None:
+    env_path = repo_root / ".env"
     if not env_path.exists():
         return
     try:
@@ -1894,16 +1921,28 @@ def _load_project_env() -> None:
             if not parsed:
                 continue
             key, value = parsed
-            os.environ.setdefault(key, value)
+            key = key.lstrip("\ufeff")
+            if _is_missing_env_value(os.getenv(key)):
+                os.environ[key] = value
     except OSError:
         pass
 
 
+def _resolve_provider() -> str:
+    configured = os.getenv("MNEMO_PROVIDER", "").strip().lower()
+    if configured.startswith("${env:") and configured.endswith("}"):
+        configured = ""
+    if configured in {"openai", "gemini"}:
+        return configured
+    return "gemini" if _get_env_value("GEMINI_API_KEY") else "openai"
+
+
 MEM_ROOT = _resolve_memory_root()
+REPO_ROOT = _resolve_repo_root(MEM_ROOT)
 _DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
 DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
-_load_project_env()
-PROVIDER = os.getenv("MNEMO_PROVIDER", "gemini" if os.getenv("GEMINI_API_KEY") else "openai").lower()
+_load_project_env(REPO_ROOT)
+PROVIDER = _resolve_provider()
 
 SKIP_NAMES = {
     "README.md",
@@ -1930,14 +1969,14 @@ def _get_embed_client():
         return _EMBED_CLIENT
 
     if PROVIDER == "gemini":
-        key = os.getenv("GEMINI_API_KEY")
+        key = _get_env_value("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
         from google import genai
         _EMBED_CLIENT = genai.Client(api_key=key)
         return _EMBED_CLIENT
 
-    key = os.getenv("OPENAI_API_KEY")
+    key = _get_env_value("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set")
     from openai import OpenAI

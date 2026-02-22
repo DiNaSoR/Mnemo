@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-02-22
+
+### Added
+- `npx @dinasor/mnemo-cli@latest` now launches a smart interactive wizard when run in a TTY, guiding users through vector mode enablement, provider selection, and API key setup in a beautiful ANSI UI.
+- Wizard automatically detects existing API keys in the shell environment or project `.env` and skips the key prompt when a real value is already present.
+- API key entered during the wizard is immediately appended to the project's `.env` file and injected into the current process environment.
+- Dependency preflight check displays Node.js, Git, Python, pip, and all required Python packages (with live "checking…" → installed/will-be-installed status) before running the installer.
+- `--yes` / `-y` flag skips the wizard entirely for non-interactive / CI use while still showing the dependency check.
+- Success box at the end of install shows next steps: `vector_health → vector_sync` hint and `mnemo-codebase-optimizer` skill reminder for seeding codebase memory.
+
+### Changed
+- `package.json` version aligned to `0.0.6` (was stale at `0.0.1`).
+
+## [0.0.5] - 2026-02-22
+
+### Fixed
+- Vector `.env` loading now treats blank/unresolved MCP placeholder values (for example `${env:GEMINI_API_KEY}`) as missing and correctly hydrates `GEMINI_API_KEY`/`OPENAI_API_KEY` from project `.env`.
+- Vector provider resolution now ignores unresolved `MNEMO_PROVIDER` placeholders and falls back to valid runtime values (`gemini` when key is present, otherwise `openai`).
+- `.env` key parser now strips BOM characters from key names to prevent silent misses on Windows-generated files.
+
 ## [0.0.4] - 2026-02-22
 
 ### Added
@@ -75,7 +95,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string drift between installer metadata and generated output by using `VERSION` as single source of truth.
 - Python fallback handling in memory query flows that previously depended on a single interpreter name.
 
-[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.5...v0.0.6
+[0.0.5]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.4
 [0.0.3]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.3
 [0.0.2]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.2

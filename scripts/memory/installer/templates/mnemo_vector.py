@@ -77,10 +77,26 @@ def _parse_env_line(raw_line: str) -> tuple[str, str] | None:
     return key, value
 
 
+def _is_missing_env_value(value: str | None) -> bool:
+    if value is None:
+        return True
+    stripped = value.strip()
+    if not stripped:
+        return True
+    # Cursor MCP placeholders can arrive as literal strings in some launches.
+    if stripped.startswith("${env:") and stripped.endswith("}"):
+        return True
+    return False
+
+
+def _get_env_value(name: str) -> str:
+    value = os.getenv(name)
+    if _is_missing_env_value(value):
+        return ""
+    return value.strip()
+
+
 def _load_project_env(repo_root: Path) -> None:
-    # Keep shell-provided values authoritative; only fill missing vars from .env.
-    if os.getenv("GEMINI_API_KEY"):
-        return
     env_path = repo_root / ".env"
     if not env_path.exists():
         return
@@ -90,9 +106,20 @@ def _load_project_env(repo_root: Path) -> None:
             if not parsed:
                 continue
             key, value = parsed
-            os.environ.setdefault(key, value)
+            key = key.lstrip("\ufeff")
+            if _is_missing_env_value(os.getenv(key)):
+                os.environ[key] = value
     except OSError:
         pass
+
+
+def _resolve_provider() -> str:
+    configured = os.getenv("MNEMO_PROVIDER", "").strip().lower()
+    if configured.startswith("${env:") and configured.endswith("}"):
+        configured = ""
+    if configured in {"openai", "gemini"}:
+        return configured
+    return "gemini" if _get_env_value("GEMINI_API_KEY") else "openai"
 
 
 MEM_ROOT = _resolve_memory_root()
@@ -100,7 +127,7 @@ REPO_ROOT = _resolve_repo_root(MEM_ROOT)
 _load_project_env(REPO_ROOT)
 _DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
 DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
-PROVIDER = os.getenv("MNEMO_PROVIDER", "gemini" if os.getenv("GEMINI_API_KEY") else "openai").lower()
+PROVIDER = _resolve_provider()
 
 SKIP_NAMES = {
     "README.md", "index.md", "lessons-index.json",
@@ -158,14 +185,14 @@ def _get_embed_client():
         return _EMBED_CLIENT
 
     if PROVIDER == "gemini":
-        key = os.getenv("GEMINI_API_KEY")
+        key = _get_env_value("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
         from google import genai
         _EMBED_CLIENT = genai.Client(api_key=key)
         return _EMBED_CLIENT
 
-    key = os.getenv("OPENAI_API_KEY")
+    key = _get_env_value("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set")
     from openai import OpenAI

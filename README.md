@@ -28,13 +28,24 @@ Run from the **target project root**.
 ### Any OS (npx, recommended)
 
 ```sh
-# Installs into your current project folder
+# Interactive wizard — guides you through every option (recommended)
 npx @dinasor/mnemo-cli@latest
+```
 
-# Optional flags (cross-platform)
+The wizard will ask you:
+
+1. **Vector mode** — enable semantic / embedding-based memory recall?
+2. **Provider** — Gemini (`GEMINI_API_KEY`) or OpenAI (`OPENAI_API_KEY`)?
+3. **API key** — enter now (saved to `.env`), already in `.env`, or skip.
+
+It then runs a live dependency check (Node · Git · Python · pip · packages) and launches the installer.
+
+```sh
+# Non-interactive (CI / scripting) — skip wizard, use flags directly
+npx @dinasor/mnemo-cli@latest --yes
+npx @dinasor/mnemo-cli@latest --enable-vector --vector-provider gemini --yes
 npx @dinasor/mnemo-cli@latest --dry-run
 npx @dinasor/mnemo-cli@latest --force
-npx @dinasor/mnemo-cli@latest --enable-vector --vector-provider gemini
 ```
 
 ### Windows (PowerShell)
@@ -75,6 +86,38 @@ If vector mode is enabled, restart your IDE once and run:
 ```text
 vector_health
 vector_sync
+```
+
+---
+
+## 🧠 Seeding memory for an existing codebase
+
+After installing Mnemo in a project that already has code, use the bundled
+`mnemo-codebase-optimizer` skill to fill memory quickly and accurately.
+
+**In Cursor (or any agent that loads `.cursor/skills/`):**
+
+1. Open the project.
+2. Start a new conversation and say:
+
+   > Use the **mnemo-codebase-optimizer** skill to seed memory for this codebase.
+
+   Or load the skill directly:
+
+   ```text
+   @.cursor/skills/mnemo-codebase-optimizer/SKILL.md
+   ```
+
+3. The agent will map architecture, ownership, dev workflows, risks, commands,
+   and write optimized `memo.md`, `hot-rules.md`, `active-context.md`, lessons,
+   and a journal summary — then validate retrieval quality.
+
+The skill is installed automatically by `memory.ps1` / `memory_mac.sh` and lives at:
+
+```text
+.cursor/skills/mnemo-codebase-optimizer/
+  SKILL.md        ← skill prompt + checklist
+  reference.md    ← memory file templates + retrieval queries
 ```
 
 ---
@@ -257,6 +300,7 @@ python3 scripts/memory/mnemo_vector.py health
 
 ## 📋 Requirements
 
+- **Node.js 18+** (for `npx @dinasor/mnemo-cli@latest`)
 - **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7 (`pwsh`)
 - **Git**
 - **Optional**: Python 3 for SQLite FTS index
@@ -264,6 +308,9 @@ python3 scripts/memory/mnemo_vector.py health
   - Python 3.10+
   - API key: `OPENAI_API_KEY` or `GEMINI_API_KEY`
   - Auto-installed deps: `openai`, `sqlite-vec`, `mcp[cli]>=1.2.0,<2.0` (+ `google-genai` for Gemini)
+
+> The interactive wizard (`npx @dinasor/mnemo-cli@latest`) checks all of these
+> before running the installer and reports which packages are already installed.
 
 ## 🤝 Contributing
 

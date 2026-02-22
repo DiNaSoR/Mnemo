@@ -151,6 +151,63 @@ if (ShouldRun "idempotent-vector-no-force") {
   } finally { Remove-TestDir $dest }
 }
 
+# ─── TEST: vector-env-from-dotenv ──────────────────────────────────────────────
+if (ShouldRun "vector-env-from-dotenv") {
+  $dest = New-TestDir
+  try {
+    $r = Run-Installer $dest @("-EnableVector", "-VectorProvider", "gemini")
+    if ($r.ExitCode -ne 0) {
+      Write-Skip "vector-env-from-dotenv" "vector bootstrap unavailable in this runtime"
+    } else {
+      $envPath = Join-Path $dest ".env"
+      [System.IO.File]::WriteAllText(
+        $envPath,
+        "GEMINI_API_KEY=dotenv-test-key`n",
+        (New-Object System.Text.UTF8Encoding($false))
+      )
+
+      $probePath = Join-Path $dest "scripts\memory\mnemo_env_probe.py"
+      $py = @"
+import importlib.util
+import os
+import pathlib
+
+script_path = pathlib.Path(os.environ["MNEMO_VECTOR_SCRIPT"])
+spec = importlib.util.spec_from_file_location("mnemo_vector_test", str(script_path))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.PROVIDER)
+print(os.getenv("GEMINI_API_KEY", ""))
+"@
+      [System.IO.File]::WriteAllText($probePath, $py, (New-Object System.Text.UTF8Encoding($false)))
+
+      $oldGemini = $env:GEMINI_API_KEY
+      $oldProvider = $env:MNEMO_PROVIDER
+      try {
+        # Simulate unresolved placeholder arriving from MCP env wiring.
+        $env:GEMINI_API_KEY = '${env:GEMINI_API_KEY}'
+        Remove-Item Env:MNEMO_PROVIDER -ErrorAction SilentlyContinue
+        $env:MNEMO_VECTOR_SCRIPT = (Join-Path $dest "scripts\memory\mnemo_vector.py")
+        $lines = (& python $probePath 2>$null | ForEach-Object { $_.ToString().Trim() })
+      } finally {
+        if ($null -ne $oldGemini) { $env:GEMINI_API_KEY = $oldGemini } else { Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue }
+        if ($null -ne $oldProvider) { $env:MNEMO_PROVIDER = $oldProvider } else { Remove-Item Env:MNEMO_PROVIDER -ErrorAction SilentlyContinue }
+        Remove-Item Env:MNEMO_VECTOR_SCRIPT -ErrorAction SilentlyContinue
+      }
+
+      if ($lines.Count -lt 2) {
+        Write-Fail "vector-env-from-dotenv" "Could not read provider/env output from mnemo_vector.py"
+      } elseif ($lines[0] -ne "gemini") {
+        Write-Fail "vector-env-from-dotenv" "Expected provider=gemini from .env fallback, got '$($lines[0])'"
+      } elseif ($lines[1] -ne "dotenv-test-key") {
+        Write-Fail "vector-env-from-dotenv" "Expected GEMINI_API_KEY from .env fallback, got '$($lines[1])'"
+      } else {
+        Write-Pass "vector-env-from-dotenv"
+      }
+    }
+  } finally { Remove-TestDir $dest }
+}
+
 # ─── TEST: idempotent-force ───────────────────────────────────────────────────
 if (ShouldRun "idempotent-force") {
   $dest = New-TestDir

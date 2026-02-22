@@ -113,6 +113,48 @@ if should_run idempotent-vector-no-force; then
   rm -rf "$dest"
 fi
 
+# ─── TEST: vector-env-from-dotenv ──────────────────────────────────────────────
+if should_run vector-env-from-dotenv; then
+  dest="$(make_dest)"
+  mkdir -p "$dest"
+  if ! command -v python3 >/dev/null 2>&1 \
+    || ! python3 -m pip --version >/dev/null 2>&1 \
+    || ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+    skip_test vector-env-from-dotenv "python3>=3.10 with pip unavailable for vector mode"
+  else
+    first_out="$(run_installer "$dest" --enable-vector --vector-provider gemini)"
+    if ! echo "$first_out" | grep -q "Setup complete"; then
+      skip_test vector-env-from-dotenv "vector mode bootstrap unavailable in this shell runtime"
+    else
+      printf 'GEMINI_API_KEY=dotenv-test-key\n' > "$dest/.env"
+      py_out="$(
+        GEMINI_API_KEY='${env:GEMINI_API_KEY}' MNEMO_PROVIDER='' python3 - <<PY
+import importlib.util
+import os
+import pathlib
+
+script_path = pathlib.Path(r"$dest") / "scripts" / "memory" / "mnemo_vector.py"
+spec = importlib.util.spec_from_file_location("mnemo_vector_test", str(script_path))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.PROVIDER)
+print(os.getenv("GEMINI_API_KEY", ""))
+PY
+      )"
+      provider_line="$(printf '%s\n' "$py_out" | sed -n '1p')"
+      key_line="$(printf '%s\n' "$py_out" | sed -n '2p')"
+      if [ "$provider_line" != "gemini" ]; then
+        fail vector-env-from-dotenv "Expected provider=gemini from .env fallback, got '$provider_line'"
+      elif [ "$key_line" != "dotenv-test-key" ]; then
+        fail vector-env-from-dotenv "Expected GEMINI_API_KEY from .env fallback, got '$key_line'"
+      else
+        pass vector-env-from-dotenv
+      fi
+    fi
+  fi
+  rm -rf "$dest"
+fi
+
 # ─── TEST: idempotent-force ───────────────────────────────────────────────────
 if should_run idempotent-force; then
   dest="$(make_dest)"
