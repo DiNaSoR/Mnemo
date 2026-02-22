@@ -138,6 +138,7 @@ You should see MCP tools:
 - **Atomic lessons**: `.mnemo/memory/lessons/L-XXX-*.md` + generated lesson index
 - **Monthly journal + digests**: `.mnemo/memory/journal/YYYY-MM.md` + `.mnemo/memory/digests/*.digest.md`
 - **Rule enforcement**: `.mnemo/rules/cursor/00-memory-system.mdc` and `.mnemo/rules/agent/00-memory-system.md` (bridged to `.cursor/rules/` and `.agent/rules/`)
+- **Project skill bootstrap**: `.cursor/skills/mnemo-codebase-optimizer/{SKILL.md,reference.md}` for fast codebase-to-memory optimization workflows
 - **Helper scripts**: `scripts/memory/*` (rebuild, lint, query, add-lesson, add-journal-entry, clear-active)
 - **Optional SQLite FTS**: `.mnemo/memory/memory.sqlite` when Python is available
 - **Optional vector layer**: `scripts/memory/mnemo_vector.py` + MCP tools
@@ -191,6 +192,10 @@ Runner triggers:
 .cursor/                     # permanent compatibility bridge
   memory/
   rules/
+  skills/
+    mnemo-codebase-optimizer/
+      SKILL.md
+      reference.md
   mcp.json                  # bridge to .mnemo/mcp/cursor.mcp.json
 
 .agent/                     # permanent compatibility bridge

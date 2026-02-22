@@ -83,7 +83,9 @@ $expectedTemplates = @(
   "scripts\memory\installer\templates\clear-active.ps1",
   "scripts\memory\installer\templates\add-lesson.ps1",
   "scripts\memory\installer\templates\add-journal-entry.ps1",
-  "scripts\memory\installer\templates\customization.md"
+  "scripts\memory\installer\templates\customization.md",
+  "scripts\memory\installer\templates\skills\mnemo-codebase-optimizer\SKILL.md",
+  "scripts\memory\installer\templates\skills\mnemo-codebase-optimizer\reference.md"
 )
 
 $allOk = $true
@@ -115,7 +117,9 @@ try {
     @{ Template = "rebuild-memory-index.ps1"; Installed = "scripts\memory\rebuild-memory-index.ps1" },
     @{ Template = "lint-memory.ps1";          Installed = "scripts\memory\lint-memory.ps1" },
     @{ Template = "query-memory.ps1";         Installed = "scripts\memory\query-memory.ps1" },
-    @{ Template = "add-lesson.ps1";           Installed = "scripts\memory\add-lesson.ps1" }
+    @{ Template = "add-lesson.ps1";           Installed = "scripts\memory\add-lesson.ps1" },
+    @{ Template = "skills\mnemo-codebase-optimizer\SKILL.md"; Installed = ".cursor\skills\mnemo-codebase-optimizer\SKILL.md" },
+    @{ Template = "skills\mnemo-codebase-optimizer\reference.md"; Installed = ".cursor\skills\mnemo-codebase-optimizer\reference.md" }
   )
 
   $allOk = $true

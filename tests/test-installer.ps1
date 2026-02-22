@@ -75,6 +75,7 @@ if (ShouldRun "scratch") {
       ".mnemo\rules\agent",
       ".cursor\memory",
       ".cursor\rules",
+      ".cursor\skills\mnemo-codebase-optimizer",
       ".agent\rules",
       ".mnemo\memory\lessons",
       ".mnemo\memory\journal",
@@ -96,6 +97,8 @@ if (ShouldRun "scratch") {
       ".mnemo\rules\cursor\00-memory-system.mdc",
       ".cursor\memory\hot-rules.md",
       ".cursor\rules\00-memory-system.mdc",
+      ".cursor\skills\mnemo-codebase-optimizer\SKILL.md",
+      ".cursor\skills\mnemo-codebase-optimizer\reference.md",
       ".agent\rules\00-memory-system.md",
       "scripts\memory\lint-memory.ps1"
     )

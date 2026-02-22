@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-02-22
+
+### Added
+- Installers now seed a project-level Cursor skill at `.cursor/skills/mnemo-codebase-optimizer/` (`SKILL.md` + `reference.md`) to accelerate high-signal memory bootstrapping for any codebase.
+
+### Changed
+- Installer-managed `.gitignore` now includes `.cursor/skills/` to keep generated Mnemo skill artifacts out of default project tracking.
+- Windows and POSIX regression tests now assert skill generation so installer behavior stays consistent across platforms.
+
 ## [0.0.3] - 2026-02-21
 
 ### Changed
@@ -66,7 +75,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string drift between installer metadata and generated output by using `VERSION` as single source of truth.
 - Python fallback handling in memory query flows that previously depended on a single interpreter name.
 
-[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.4
 [0.0.3]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.3
 [0.0.2]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.2
 [0.0.1]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.1

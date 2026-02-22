@@ -46,7 +46,7 @@ if should_run scratch; then
   ok=1
   for d in \
     ".mnemo/memory" ".mnemo/rules/cursor" ".mnemo/rules/agent" \
-    ".cursor/memory" ".cursor/rules" ".agent/rules" \
+    ".cursor/memory" ".cursor/rules" ".cursor/skills/mnemo-codebase-optimizer" ".agent/rules" \
     ".mnemo/memory/lessons" ".mnemo/memory/journal" \
     "scripts/memory"; do
     [ -d "$dest/$d" ] || { fail scratch "Missing directory: $d"; ok=0; break; }
@@ -55,6 +55,8 @@ if should_run scratch; then
     ".mnemo/memory/hot-rules.md" ".mnemo/memory/memo.md" ".mnemo/memory/active-context.md" \
     ".mnemo/rules/cursor/00-memory-system.mdc" \
     ".cursor/memory/hot-rules.md" ".cursor/rules/00-memory-system.mdc" \
+    ".cursor/skills/mnemo-codebase-optimizer/SKILL.md" \
+    ".cursor/skills/mnemo-codebase-optimizer/reference.md" \
     ".agent/rules/00-memory-system.md" \
     "scripts/memory/lint-memory.sh"; do
     [ -f "$dest/$f" ] || { fail scratch "Missing file: $f"; ok=0; break; }

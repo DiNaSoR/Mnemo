@@ -154,6 +154,7 @@ Write-Host "  Query:       scripts\memory\query-memory.ps1 -Query ""..."" [-UseS
 Write-Host "  Lint:        scripts\memory\lint-memory.ps1" -ForegroundColor DarkGray
 Write-Host "  Clear:       scripts\memory\clear-active.ps1" -ForegroundColor DarkGray
 Write-Host "  Rebuild:     scripts\memory\rebuild-memory-index.ps1" -ForegroundColor DarkGray
+Write-Host "  Skill:       .cursor\skills\mnemo-codebase-optimizer\SKILL.md" -ForegroundColor DarkGray
 Write-Host ""
 
 if ($EnableVector -and (-not $DryRun)) {

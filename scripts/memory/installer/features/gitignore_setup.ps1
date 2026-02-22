@@ -18,6 +18,7 @@ function Update-MnemoGitignore {
     ".mnemo/",
     ".cursor/memory/",
     ".cursor/rules/",
+    ".cursor/skills/",
     ".cursor/mcp.json",
     ".agent/rules/",
     "scripts/memory/",

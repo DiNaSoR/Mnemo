@@ -436,6 +436,16 @@ function Install-MemoryScripts {
       -ForceWrite:$Force
   }
 
+  $cursorSkillTemplates = @("SKILL.md", "reference.md")
+  foreach ($f in $cursorSkillTemplates) {
+    Install-TemplateFile `
+      -TemplateName "skills\mnemo-codebase-optimizer\$f" `
+      -DestPath (Join-Path $Ctx.CursorDir "skills\mnemo-codebase-optimizer\$f") `
+      -InstallerRoot $InstallerRoot `
+      -LineEndings "LF" `
+      -ForceWrite:$Force
+  }
+
   if ($EnableVector) {
     Install-TemplateFile `
       -TemplateName "mnemo_vector.py" `

@@ -11,7 +11,7 @@
 #   sh ./memory_mac.sh --enable-vector --vector-provider gemini
 #
 # This creates:
-#   .cursor/memory/*, .cursor/rules/*, scripts/memory/*, .githooks/pre-commit
+#   .cursor/memory/*, .cursor/rules/*, .cursor/skills/*, scripts/memory/*, .githooks/pre-commit
 #   (and optional .githooks/post-commit when --enable-vector is used)
 
 set -eu
@@ -124,6 +124,17 @@ write_file() {
   cat > "$tmp"
   mv "$tmp" "$path"
   printf '%s\n' "WROTE: $path"
+}
+
+install_template_file() {
+  # install_template_file <template_path> <dest_path>
+  template_path="$1"
+  dest_path="$2"
+  if [ ! -f "$template_path" ]; then
+    printf '%s\n' "WARNING: Template not found: $template_path"
+    return 0
+  fi
+  write_file "$dest_path" < "$template_path"
 }
 
 sync_dir_one_way() {
@@ -598,6 +609,14 @@ This project uses Mnemo for structured AI memory. All memory lives in `.cursor/m
 - Create lesson if you discovered a pitfall
 - Clear active-context.md when task is merged
 EOF
+
+# -------------------------
+# Cursor project skills
+# -------------------------
+
+_skills_tpl_dir="$_INSTALLER_DIR/scripts/memory/installer/templates/skills/mnemo-codebase-optimizer"
+install_template_file "$_skills_tpl_dir/SKILL.md" "$CURSOR_DIR/skills/mnemo-codebase-optimizer/SKILL.md"
+install_template_file "$_skills_tpl_dir/reference.md" "$CURSOR_DIR/skills/mnemo-codebase-optimizer/reference.md"
 
 write_file "$MEM_SCRIPTS_DIR/customization.md" <<'EOF'
 # Mnemo Memory Customization Prompt (paste into an AI)
@@ -2388,6 +2407,7 @@ GI_END="# <<< Mnemo (generated) >>>"
 ignore_lines=".mnemo/
 .cursor/memory/
 .cursor/rules/
+.cursor/skills/
 .cursor/mcp.json
 .agent/rules/
 scripts/memory/
@@ -2461,6 +2481,7 @@ fi
 echo ""
 echo "Setup complete. (Mnemo v$MNEMO_VERSION)"
 echo "Next:"
+echo "  skill: .cursor/skills/mnemo-codebase-optimizer/SKILL.md"
 echo "  sh ./scripts/memory/rebuild-memory-index.sh"
 echo "  sh ./scripts/memory/lint-memory.sh"
 if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
