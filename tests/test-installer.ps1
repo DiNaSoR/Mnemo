@@ -159,6 +159,10 @@ if (ShouldRun "vector-env-from-dotenv") {
     if ($r.ExitCode -ne 0) {
       Write-Skip "vector-env-from-dotenv" "vector bootstrap unavailable in this runtime"
     } else {
+      $null = & python -c "import sqlite_vec" 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        Write-Skip "vector-env-from-dotenv" "sqlite_vec not importable in this Python env (skipping import probe)"
+      } else {
       $envPath = Join-Path $dest ".env"
       [System.IO.File]::WriteAllText(
         $envPath,
@@ -204,7 +208,8 @@ print(os.getenv("GEMINI_API_KEY", ""))
       } else {
         Write-Pass "vector-env-from-dotenv"
       }
-    }
+      } # end sqlite_vec-importable else
+    } # end vector-install-ok else
   } finally { Remove-TestDir $dest }
 }
 

@@ -125,6 +125,8 @@ if should_run vector-env-from-dotenv; then
     first_out="$(run_installer "$dest" --enable-vector --vector-provider gemini)"
     if ! echo "$first_out" | grep -q "Setup complete"; then
       skip_test vector-env-from-dotenv "vector mode bootstrap unavailable in this shell runtime"
+    elif ! python3 -c 'import sqlite_vec' 2>/dev/null; then
+      skip_test vector-env-from-dotenv "sqlite_vec not importable in this Python env (skipping import probe)"
     else
       printf 'GEMINI_API_KEY=dotenv-test-key\n' > "$dest/.env"
       py_out="$(
