@@ -73,7 +73,6 @@ jobs:
           scandir: "."
           additional_files: "memory_mac.sh tests/test-installer.sh"
           severity: warning
-        continue-on-error: true
 
   powershell-syntax:
     name: PowerShell syntax check
