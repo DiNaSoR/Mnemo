@@ -22,6 +22,10 @@ from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 2
 EMBED_DIM = 1536
+MAX_TOP_K = 200
+_VEC_KNN_LIMIT = 4096
+_EMBED_MAX_RETRIES = 3
+_EMBED_RETRY_BASE_S = 1.0
 
 
 def _resolve_memory_root() -> Path:
@@ -122,12 +126,57 @@ def _resolve_provider() -> str:
     return "gemini" if _get_env_value("GEMINI_API_KEY") else "openai"
 
 
-MEM_ROOT = _resolve_memory_root()
-REPO_ROOT = _resolve_repo_root(MEM_ROOT)
-_load_project_env(REPO_ROOT)
-_DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
-DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
-PROVIDER = _resolve_provider()
+class _LazyState:
+    """Lazy-initialized module state — no file I/O or env mutation at import time."""
+
+    def __init__(self):
+        self._init_done = False
+        self._mem_root: Path | None = None
+        self._repo_root: Path | None = None
+        self._db_path: Path | None = None
+        self._provider: str | None = None
+
+    def _ensure_init(self) -> None:
+        if self._init_done:
+            return
+        self._mem_root = _resolve_memory_root()
+        self._repo_root = _resolve_repo_root(self._mem_root)
+        _load_project_env(self._repo_root)
+        db_override = os.getenv("MNEMO_DB_PATH", "").strip()
+        self._db_path = Path(db_override).expanduser().resolve() if db_override else (self._mem_root / "mnemo_vector.sqlite")
+        self._provider = _resolve_provider()
+        self._init_done = True
+
+    @property
+    def MEM_ROOT(self) -> Path:
+        self._ensure_init()
+        return self._mem_root  # type: ignore[return-value]
+
+    @property
+    def REPO_ROOT(self) -> Path:
+        self._ensure_init()
+        return self._repo_root  # type: ignore[return-value]
+
+    @property
+    def DB_PATH(self) -> Path:
+        self._ensure_init()
+        return self._db_path  # type: ignore[return-value]
+
+    @property
+    def PROVIDER(self) -> str:
+        self._ensure_init()
+        return self._provider  # type: ignore[return-value]
+
+
+_S = _LazyState()
+
+
+def __getattr__(name: str):
+    """Lazy module-level attribute access for backward compatibility."""
+    if name in ("MEM_ROOT", "REPO_ROOT", "DB_PATH", "PROVIDER"):
+        return getattr(_S, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 SKIP_NAMES = {
     "README.md", "index.md", "lessons-index.json",
@@ -135,7 +184,8 @@ SKIP_NAMES = {
 }
 SKIP_DIRS = {"legacy", "templates"}
 MAX_EMBED_CHARS = 12000
-BATCH_SIZE = 16 if PROVIDER == "gemini" else 64
+def _batch_size() -> int:
+    return 16 if _S.PROVIDER == "gemini" else 64
 _EMBED_CLIENT = None
 
 # Memory type authority weights for reranking
@@ -184,7 +234,7 @@ def _get_embed_client():
     if _EMBED_CLIENT is not None:
         return _EMBED_CLIENT
 
-    if PROVIDER == "gemini":
+    if _S.PROVIDER == "gemini":
         key = _get_env_value("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
@@ -204,23 +254,34 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     trimmed = [_trim_for_embedding(t) for t in texts]
+    if any(not t.strip() for t in trimmed):
+        trimmed = [t if t.strip() else " " for t in trimmed]
     client = _get_embed_client()
 
-    if PROVIDER == "gemini":
-        from google.genai import types
-        result = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=trimmed,
-            config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
-        )
-        vectors = [emb.values for emb in result.embeddings]
-    else:
-        resp = client.embeddings.create(input=trimmed, model="text-embedding-3-small")
-        vectors = [item.embedding for item in resp.data]
+    import time as _time
+    last_err: Exception | None = None
+    for attempt in range(_EMBED_MAX_RETRIES):
+        try:
+            if _S.PROVIDER == "gemini":
+                from google.genai import types
+                result = client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=trimmed,
+                    config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
+                )
+                vectors = [emb.values for emb in result.embeddings]
+            else:
+                resp = client.embeddings.create(input=trimmed, model="text-embedding-3-small")
+                vectors = [item.embedding for item in resp.data]
 
-    if len(vectors) != len(trimmed):
-        raise RuntimeError(f"Embedding provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
-    return vectors
+            if len(vectors) != len(trimmed):
+                raise RuntimeError(f"Embedding provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
+            return vectors
+        except Exception as e:
+            last_err = e
+            if attempt < _EMBED_MAX_RETRIES - 1:
+                _time.sleep(_EMBED_RETRY_BASE_S * (2 ** attempt))
+    raise RuntimeError(f"Embedding failed after {_EMBED_MAX_RETRIES} attempts: {last_err}")
 
 
 def get_embedding(text: str) -> list[float]:
@@ -228,9 +289,11 @@ def get_embedding(text: str) -> list[float]:
 
 
 def get_db() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(str(DB_PATH), timeout=30)
+    _S.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(str(_S.DB_PATH), timeout=30)
+    db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=10000")
     db.enable_load_extension(True)
     sqlite_vec.load(db)
@@ -273,7 +336,7 @@ def init_db() -> sqlite3.Connection:
             """
             CREATE TABLE IF NOT EXISTS memory_units (
                 unit_id      TEXT PRIMARY KEY,
-                source_ref   TEXT NOT NULL,
+                source_ref   TEXT NOT NULL UNIQUE,
                 memory_type  TEXT NOT NULL DEFAULT 'semantic',
                 authority    REAL NOT NULL DEFAULT 0.5,
                 time_scope   TEXT NOT NULL DEFAULT 'time-bound',
@@ -326,9 +389,19 @@ def init_db() -> sqlite3.Connection:
             """
             CREATE TABLE IF NOT EXISTS entity_aliases (
                 alias_id    TEXT PRIMARY KEY,
-                entity_id   TEXT NOT NULL,
+                entity_id   TEXT NOT NULL REFERENCES entities(entity_id),
                 alias_text  TEXT NOT NULL,
-                confidence  REAL NOT NULL DEFAULT 1.0
+                confidence  REAL NOT NULL DEFAULT 1.0,
+                UNIQUE(alias_text)
+            )
+            """
+        )
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS autonomy_state (
+                key   TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at REAL DEFAULT (unixepoch('now'))
             )
             """
         )
@@ -428,7 +501,7 @@ def vector_sync() -> str:
         return f"DB init failed: {e}"
 
     files: dict[str, Path] = {}
-    for p in MEM_ROOT.glob("**/*.md"):
+    for p in _S.MEM_ROOT.glob("**/*.md"):
         if p.name in SKIP_NAMES:
             continue
         if any(skip in p.parts for skip in SKIP_DIRS):
@@ -469,8 +542,8 @@ def vector_sync() -> str:
         embedded = 0
         chunk_errors = 0
 
-        for i in range(0, len(chunks), BATCH_SIZE):
-            batch = chunks[i : i + BATCH_SIZE]
+        for i in range(0, len(chunks), _batch_size()):
+            batch = chunks[i : i + _batch_size()]
             texts = [text for text, _ in batch]
             try:
                 vectors = get_embeddings(texts)
@@ -516,12 +589,17 @@ def vector_sync() -> str:
 @mcp.tool()
 def vector_search(query: str, top_k: int = 5) -> str:
     """Semantic search with authority-aware reranking."""
+    if not query or not query.strip():
+        return "Please provide a search query."
+    top_k = max(1, min(top_k, MAX_TOP_K))
+    fetch_k = min(top_k * 3, _VEC_KNN_LIMIT)
+
     try:
         db = init_db()
         emb = get_embedding(query)
         rows = db.execute(
             "SELECT ref_path, content, distance FROM vec_memory WHERE embedding MATCH ? AND k = ? ORDER BY distance",
-            (serialize_f32(emb), top_k * 3),  # over-fetch for reranking
+            (serialize_f32(emb), fetch_k),
         ).fetchall()
         db.close()
     except Exception as e:
@@ -532,7 +610,8 @@ def vector_search(query: str, top_k: int = 5) -> str:
 
     # Rerank: combine semantic score with authority weight
     reranked = []
-    for ref, content, dist in rows:
+    for row in rows:
+        ref, content, dist = row["ref_path"], row["content"], row["distance"]
         sem_score = round(1.0 - dist, 4)
         mem_type = _infer_memory_type(ref)
         auth_weight = AUTHORITY_WEIGHTS.get(mem_type, 0.5)
@@ -557,16 +636,22 @@ def vector_search(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(out)
 
 
+def _escape_like(pattern: str) -> str:
+    """Escape LIKE special characters so they match literally."""
+    return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @mcp.tool()
 def vector_forget(path_pattern: str = "") -> str:
     try:
         db = init_db()
         removed = 0
         if path_pattern:
-            like = f"%{path_pattern}%"
-            r1 = db.execute("DELETE FROM vec_memory WHERE source_file LIKE ?", (like,)).rowcount
-            r2 = db.execute("DELETE FROM file_meta WHERE path LIKE ?", (like,)).rowcount
-            db.execute("DELETE FROM memory_units WHERE source_ref LIKE ?", (like,))
+            escaped = _escape_like(path_pattern)
+            like = f"%{escaped}%"
+            r1 = db.execute("DELETE FROM vec_memory WHERE source_file LIKE ? ESCAPE '\\'", (like,)).rowcount
+            r2 = db.execute("DELETE FROM file_meta WHERE path LIKE ? ESCAPE '\\'", (like,)).rowcount
+            db.execute("DELETE FROM memory_units WHERE source_ref LIKE ? ESCAPE '\\'", (like,))
             removed = max(r1, r2)
         else:
             known = db.execute("SELECT path FROM file_meta").fetchall()
@@ -608,9 +693,9 @@ def vector_health() -> str:
 
     try:
         _ = get_embedding("health check")
-        lines.append(f"Embedding API ({PROVIDER}): OK")
+        lines.append(f"Embedding API ({_S.PROVIDER}): OK")
     except Exception as e:
-        lines.append(f"Embedding API ({PROVIDER}): FAILED - {e}")
+        lines.append(f"Embedding API ({_S.PROVIDER}): FAILED - {e}")
     return "\n".join(lines)
 
 
