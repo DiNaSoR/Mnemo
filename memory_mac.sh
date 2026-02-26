@@ -814,7 +814,6 @@ canon_tag() {
   want_l="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
   [ -f "$TAG_VOCAB" ] || { echo "$1"; return 0; }
   awk -v w="$want_l" '
-    BEGIN { IGNORECASE=1 }
     /^\- \[[^]]+\]/ {
       t=$0
       sub(/^\- \[/,"",t); sub(/\].*$/,"",t)
@@ -863,16 +862,16 @@ fi
 
 if grep -q "^## $DATE\$" "$JOURNAL"; then
   awk -v d="$DATE" -v e="$(printf "%b" "$entry")" '
-    BEGIN { in=0; done=0 }
+    BEGIN { inhdr=0; done=0 }
     {
       print $0
-      if ($0 == "## " d) { in=1; next }
-      if (in==1 && done==0 && $0 ~ /^## [0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
+      if ($0 == "## " d) { inhdr=1; next }
+      if (inhdr==1 && done==0 && $0 ~ /^## [0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
         print ""
         print e
         print ""
         done=1
-        in=0
+        inhdr=0
       }
     }
     END {
@@ -947,7 +946,6 @@ canon_tag() {
   want_l="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
   [ -f "$TAG_VOCAB" ] || { echo "$1"; return 0; }
   awk -v w="$want_l" '
-    BEGIN { IGNORECASE=1 }
     /^\- \[[^]]+\]/ {
       t=$0
       sub(/^\- \[/,"",t); sub(/\].*$/,"",t)
@@ -1050,10 +1048,10 @@ for f in "$LESSONS"/L-*.md; do
   bn="$(basename "$f")"
   awk -v file="$bn" '
     function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
-    BEGIN{ in=0; cur=""; id=""; title=""; status=""; introduced=""; tags=""; rule=""; applies="" }
-    NR==1 && $0=="---"{in=1; next}
-    in==1 && $0=="---"{in=0; next}
-    in==1{
+    BEGIN{ inhdr=0; cur=""; id=""; title=""; status=""; introduced=""; tags=""; rule=""; applies="" }
+    NR==1 && $0=="---"{inhdr=1; next}
+    inhdr==1 && $0=="---"{inhdr=0; next}
+    inhdr==1{
       if ($0 ~ /^[ \t]*#/ || $0 ~ /^[ \t]*$/) next
       if ($0 ~ /^[A-Za-z0-9_]+:[ \t]*$/) {
         key=$1; sub(/:$/,"",key); cur=tolower(key); next
@@ -1405,12 +1403,12 @@ for lf in "$LESSONS"/L-*.md; do
     continue
   fi
 
-  id="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="id:"{print $2; exit}' "$lf" 2>/dev/null || true)"
-  title="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="title:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
-  status="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="status:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
-  tags="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="tags:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
-  introduced="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="introduced:"{print $2; exit}' "$lf" 2>/dev/null || true)"
-  rule="$(awk 'NR==1 && $0=="---"{in=1;next} in && $0=="---"{exit} in && $1=="rule:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  id="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="id:"{print $2; exit}' "$lf" 2>/dev/null || true)"
+  title="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="title:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  status="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="status:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  tags="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="tags:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
+  introduced="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="introduced:"{print $2; exit}' "$lf" 2>/dev/null || true)"
+  rule="$(awk 'NR==1 && $0=="---"{h=1;next} h && $0=="---"{exit} h && $1=="rule:"{$1=""; sub(/^ /,""); print; exit}' "$lf" 2>/dev/null || true)"
 
   [ -z "$id" ] && err "[$bn] Missing required field: id"
   [ -z "$title" ] && err "[$bn] Missing required field: title"
