@@ -1537,7 +1537,7 @@ for p in \
   .cursor/memory/journal-index.json \
   .cursor/memory/digests/*.digest.md
 do
-  git add $p 2>/dev/null || true
+  git add "$p" 2>/dev/null || true
 done
 exit 0
 EOF
