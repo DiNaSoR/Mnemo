@@ -121,8 +121,8 @@ write_file() {
   dir="$(dirname "$path")"
   [ -d "$dir" ] || mkdir -p "$dir"
   tmp="${path}.tmp.$$"
-  cat > "$tmp"
-  mv "$tmp" "$path"
+  cat > "$tmp" || { rm -f "$tmp"; echo "ERROR: failed to write $path" >&2; return 1; }
+  mv "$tmp" "$path" || { rm -f "$tmp"; echo "ERROR: failed to move $tmp -> $path" >&2; return 1; }
   printf '%s\n' "WROTE: $path"
 }
 
@@ -705,10 +705,8 @@ tmp="${TMPDIR:-/tmp}/mnemo-query.$$"
 rm -f "$tmp"
 
 for t in $targets; do
-  # shellcheck disable=SC2086
-  [ -e $t ] || continue
-  # shellcheck disable=SC2086
-  grep -nH "$QUERY" $t 2>/dev/null >>"$tmp" || true
+  [ -e "$t" ] || continue
+  grep -nH "$QUERY" "$t" 2>/dev/null >>"$tmp" || true
 done
 
 match_count=0
@@ -882,7 +880,7 @@ if grep -q "^## $DATE\$" "$JOURNAL"; then
       }
     }
   ' "$JOURNAL" > "$JOURNAL.tmp.$$"
-  mv "$JOURNAL.tmp.$$" "$JOURNAL"
+  mv "$JOURNAL.tmp.$$" "$JOURNAL" || { rm -f "$JOURNAL.tmp.$$"; echo "ERROR: failed to update $JOURNAL" >&2; exit 1; }
 else
   {
     printf "\n## %s\n\n" "$DATE"
