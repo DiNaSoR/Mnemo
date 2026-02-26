@@ -288,7 +288,31 @@ def get_embedding(text: str) -> list[float]:
     return get_embeddings([text])[0]
 
 
-def get_db() -> sqlite3.Connection:
+def _try_import_schema_module():
+    """Try to import the canonical schema module from the autonomy package."""
+    try:
+        script_dir = Path(__file__).resolve().parent
+        autonomy_dir = script_dir / "autonomy"
+        if autonomy_dir.is_dir():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "autonomy.schema", str(autonomy_dir / "schema.py")
+            )
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+    except Exception:
+        pass
+    return None
+
+
+def init_db() -> sqlite3.Connection:
+    """Initialize DB with full schema. Delegates to autonomy.schema when available."""
+    _schema_mod = _try_import_schema_module()
+    if _schema_mod is not None:
+        return _schema_mod.get_db(db_path=_S.DB_PATH)
+
     _S.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(str(_S.DB_PATH), timeout=30)
     db.row_factory = sqlite3.Row
@@ -297,118 +321,63 @@ def get_db() -> sqlite3.Connection:
     db.execute("PRAGMA busy_timeout=10000")
     db.enable_load_extension(True)
     sqlite_vec.load(db)
-    return db
 
-
-def init_db() -> sqlite3.Connection:
-    db = get_db()
     db.execute("CREATE TABLE IF NOT EXISTS schema_info (key TEXT PRIMARY KEY, value TEXT)")
     row = db.execute("SELECT value FROM schema_info WHERE key='version'").fetchone()
-    ver = int(row[0]) if row else 0
+    ver = int(row["value"] if row else 0)
 
     if ver < 1:
         db.execute("DROP TABLE IF EXISTS file_meta")
         db.execute("DROP TABLE IF EXISTS vec_memory")
-        db.execute(
-            """
+        db.execute("""
             CREATE TABLE file_meta (
-                path TEXT PRIMARY KEY,
-                hash TEXT NOT NULL,
+                path TEXT PRIMARY KEY, hash TEXT NOT NULL,
                 chunk_count INTEGER DEFAULT 0,
                 updated_at REAL DEFAULT (unixepoch('now'))
             )
-            """
-        )
-        db.execute(
-            f"""
+        """)
+        db.execute(f"""
             CREATE VIRTUAL TABLE vec_memory USING vec0(
                 embedding float[{EMBED_DIM}] distance_metric=cosine,
-                +ref_path TEXT,
-                +content TEXT,
-                +source_file TEXT
+                +ref_path TEXT, +content TEXT, +source_file TEXT
             )
-            """
-        )
+        """)
 
     if ver < SCHEMA_VERSION:
-        # v2: typed memory units, fact lifecycle, entity tables
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memory_units (
-                unit_id      TEXT PRIMARY KEY,
-                source_ref   TEXT NOT NULL UNIQUE,
-                memory_type  TEXT NOT NULL DEFAULT 'semantic',
-                authority    REAL NOT NULL DEFAULT 0.5,
-                time_scope   TEXT NOT NULL DEFAULT 'time-bound',
-                sensitivity  TEXT NOT NULL DEFAULT 'public',
-                entity_tags  TEXT NOT NULL DEFAULT '[]',
-                content_hash TEXT NOT NULL,
-                created_at   REAL DEFAULT (unixepoch('now')),
-                updated_at   REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS facts (
-                fact_id        TEXT PRIMARY KEY,
-                canonical_fact TEXT NOT NULL,
-                status         TEXT NOT NULL DEFAULT 'active',
-                confidence     REAL NOT NULL DEFAULT 1.0,
-                source_ref     TEXT NOT NULL,
-                created_at     REAL DEFAULT (unixepoch('now')),
-                updated_at     REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lifecycle_events (
-                event_id   TEXT PRIMARY KEY,
-                unit_id    TEXT NOT NULL,
-                operation  TEXT NOT NULL,
-                old_status TEXT,
-                new_status TEXT,
-                reason     TEXT,
-                ts         REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entities (
-                entity_id   TEXT PRIMARY KEY,
-                entity_name TEXT NOT NULL,
-                entity_type TEXT NOT NULL DEFAULT 'general',
-                confidence  REAL NOT NULL DEFAULT 1.0,
-                created_at  REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_aliases (
-                alias_id    TEXT PRIMARY KEY,
-                entity_id   TEXT NOT NULL REFERENCES entities(entity_id),
-                alias_text  TEXT NOT NULL,
-                confidence  REAL NOT NULL DEFAULT 1.0,
-                UNIQUE(alias_text)
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS autonomy_state (
-                key   TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            "INSERT OR REPLACE INTO schema_info(key, value) VALUES ('version', ?)",
-            (str(SCHEMA_VERSION),),
-        )
+        for ddl in [
+            """CREATE TABLE IF NOT EXISTS memory_units (
+                unit_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL UNIQUE,
+                memory_type TEXT NOT NULL DEFAULT 'semantic', authority REAL NOT NULL DEFAULT 0.5,
+                time_scope TEXT NOT NULL DEFAULT 'time-bound', sensitivity TEXT NOT NULL DEFAULT 'public',
+                entity_tags TEXT NOT NULL DEFAULT '[]', content_hash TEXT NOT NULL,
+                created_at REAL DEFAULT (unixepoch('now')), updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS facts (
+                fact_id TEXT PRIMARY KEY, canonical_fact TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active', confidence REAL NOT NULL DEFAULT 1.0,
+                source_ref TEXT NOT NULL,
+                created_at REAL DEFAULT (unixepoch('now')), updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS lifecycle_events (
+                event_id TEXT PRIMARY KEY, unit_id TEXT NOT NULL,
+                operation TEXT NOT NULL, old_status TEXT, new_status TEXT, reason TEXT,
+                ts REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS entities (
+                entity_id TEXT PRIMARY KEY, entity_name TEXT NOT NULL,
+                entity_type TEXT NOT NULL DEFAULT 'general', confidence REAL NOT NULL DEFAULT 1.0,
+                created_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS entity_aliases (
+                alias_id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(entity_id),
+                alias_text TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0, UNIQUE(alias_text)
+            )""",
+            """CREATE TABLE IF NOT EXISTS autonomy_state (
+                key TEXT PRIMARY KEY, value TEXT, updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+        ]:
+            db.execute(ddl)
+        db.execute("INSERT OR REPLACE INTO schema_info(key, value) VALUES ('version', ?)", (str(SCHEMA_VERSION),))
         db.commit()
     return db
 
