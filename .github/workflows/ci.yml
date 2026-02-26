@@ -190,7 +190,7 @@ jobs:
 
   # ─── Installer modularization anti-monolith guard ────────────────────────────
   modularization-guard:
-    name: Monolith guard (memory.ps1 LOC check)
+    name: Monolith guard (LOC check)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -205,6 +205,18 @@ jobs:
             exit 1
           elif [ "$loc" -gt 400 ]; then
             echo "WARN: memory.ps1 exceeds 400-line soft target ($loc lines)"
+          fi
+
+      - name: Check memory_mac.sh line count (soft=2800, hard=3200)
+        run: |
+          loc=$(wc -l < memory_mac.sh)
+          echo "memory_mac.sh: $loc lines"
+          if [ "$loc" -gt 3200 ]; then
+            echo "FAIL: memory_mac.sh exceeds 3200-line hard limit ($loc lines)"
+            echo "Consider modularizing into sourced scripts"
+            exit 1
+          elif [ "$loc" -gt 2800 ]; then
+            echo "WARN: memory_mac.sh exceeds 2800-line soft target ($loc lines)"
           fi
 
       - name: Check no large heredocs in memory.ps1
@@ -260,6 +272,32 @@ jobs:
           done
           echo "All autonomy templates present"
 
+  # ─── Node.js CLI smoke test ──────────────────────────────────────────────────
+  cli-smoke:
+    name: CLI smoke test (Node.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: CLI --help exits 0
+        run: node bin/mnemo.js --help
+
+      - name: CLI --yes --dry-run exits 0
+        run: |
+          dest="$RUNNER_TEMP/cli-dryrun"
+          mkdir -p "$dest"
+          node bin/mnemo.js --yes --dry-run --repo-root "$dest"
+
+      - name: CLI --yes full install exits 0
+        run: |
+          dest="$RUNNER_TEMP/cli-install"
+          mkdir -p "$dest" && cd "$dest" && git init
+          node "$GITHUB_WORKSPACE/bin/mnemo.js" --yes --repo-root "$dest" --project-name CLITest
+          test -f "$dest/.mnemo/memory/hot-rules.md" || { echo "FAIL: core files missing"; exit 1; }
+
   # ─── Retrieval quality benchmark ─────────────────────────────────────────────
   retrieval-quality:
     name: Retrieval quality benchmark
@@ -274,20 +312,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install --quiet sqlite-vec mcp pyyaml
+        run: pip install --quiet "sqlite-vec>=0.1.1" "mcp[cli]>=1.2.0,<2.0" "pyyaml>=6.0"
 
       - name: Install Mnemo to temp dir
         run: |
           mkdir -p /tmp/mnemo-bench
-          python3 -c "
-          import subprocess, sys
-          r = subprocess.run(['pwsh', '-ExecutionPolicy', 'Bypass', '-File', 'memory.ps1',
-              '-RepoRoot', '/tmp/mnemo-bench', '-ProjectName', 'BenchTest'],
-              capture_output=True, text=True)
-          print(r.stdout)
-          if r.returncode != 0:
-              print(r.stderr, file=sys.stderr)
-          " || true
+          sh ./memory_mac.sh --repo-root /tmp/mnemo-bench --project-name BenchTest
 
       - name: Run benchmark (FTS mode, no API key required)
         working-directory: /tmp/mnemo-bench
@@ -310,7 +340,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install minimal deps for syntax check
-        run: pip install --quiet pyyaml
+        run: pip install --quiet "pyyaml>=6.0"
 
       - name: Syntax check all autonomy templates
         run: |
