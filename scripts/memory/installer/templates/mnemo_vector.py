@@ -224,6 +224,30 @@ def _infer_time_scope(memory_type: str) -> str:
 mcp = FastMCP("MnemoVector")
 
 
+# ─── Rate limiter for embedding API calls ─────────────────────────────────────
+
+class _RateLimiter:
+    """Simple sliding-window rate limiter to prevent API quota exhaustion."""
+
+    def __init__(self, max_calls: int = 60, window_s: float = 60.0):
+        self._max = max_calls
+        self._window = window_s
+        self._timestamps: list[float] = []
+
+    def acquire(self) -> None:
+        import time as _t
+        now = _t.time()
+        self._timestamps = [t for t in self._timestamps if now - t < self._window]
+        if len(self._timestamps) >= self._max:
+            sleep_for = self._window - (now - self._timestamps[0]) + 0.1
+            if sleep_for > 0:
+                _t.sleep(sleep_for)
+        self._timestamps.append(now if not self._timestamps or now > self._timestamps[-1] else self._timestamps[-1])
+
+
+_RATE_LIMITER = _RateLimiter(max_calls=60, window_s=60.0)
+
+
 # ─── Embedding provider abstraction ──────────────────────────────────────────
 
 class _EmbedProvider:
@@ -296,6 +320,7 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
     import time as _time
     last_err: Exception | None = None
     for attempt in range(_EMBED_MAX_RETRIES):
+        _RATE_LIMITER.acquire()
         try:
             vectors = provider.embed(trimmed)
             if len(vectors) != len(trimmed):
@@ -597,8 +622,8 @@ def vector_sync() -> str:
 
 
 @mcp.tool()
-def vector_search(query: str, top_k: int = 5) -> str:
-    """Semantic search with authority-aware reranking."""
+def vector_search(query: str, top_k: int = 5, memory_type: str = "") -> str:
+    """Semantic search with authority-aware reranking. Optional memory_type filter (core/procedural/episodic/semantic)."""
     if not query or not query.strip():
         return "Please provide a search query."
     top_k = max(1, min(top_k, MAX_TOP_K))
@@ -618,15 +643,17 @@ def vector_search(query: str, top_k: int = 5) -> str:
     if not rows:
         return "No relevant memory found."
 
-    # Rerank: combine semantic score with authority weight
+    type_filter = memory_type.strip().lower() if memory_type else ""
+
     reranked = []
     for row in rows:
         ref, content, dist = row["ref_path"], row["content"], row["distance"]
         sem_score = round(1.0 - dist, 4)
         mem_type = _infer_memory_type(ref)
         auth_weight = AUTHORITY_WEIGHTS.get(mem_type, 0.5)
-        # Skip vault entries entirely (sensitivity guard)
         if mem_type == "vault":
+            continue
+        if type_filter and mem_type != type_filter:
             continue
         # Temporal boost for recency-sensitive types when query mentions time words
         temporal_boost = 0.0
@@ -735,8 +762,19 @@ def memory_status() -> str:
         return json.dumps({"error": str(e)})
 
 
+_VERBOSE = False
+
+
+def _vlog(msg: str) -> None:
+    """Print verbose diagnostic messages when --verbose is active."""
+    if _VERBOSE:
+        print(f"  [verbose] {msg}", flush=True)
+
+
 def _run_cli(argv: list[str]) -> int:
+    global _VERBOSE
     parser = argparse.ArgumentParser(description="Mnemo vector CLI")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed diagnostic output")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("sync", help="Rebuild vector index from memory markdown files")
@@ -752,6 +790,11 @@ def _run_cli(argv: list[str]) -> int:
     sub.add_parser("status", help="Return JSON memory status summary")
 
     args = parser.parse_args(argv)
+    _VERBOSE = args.verbose
+    if _VERBOSE:
+        _vlog(f"Provider: {_S.PROVIDER}")
+        _vlog(f"DB: {_S.DB_PATH}")
+        _vlog(f"Memory root: {_S.MEM_ROOT}")
     try:
         if args.command == "sync":
             print(vector_sync())
