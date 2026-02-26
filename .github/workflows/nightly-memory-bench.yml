@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install --quiet sqlite-vec mcp pyyaml
+        run: pip install --quiet "sqlite-vec>=0.1.1" "mcp[cli]>=1.2.0,<2.0" "pyyaml>=6.0"
 
       - name: Restore baseline metrics (if exists)
         id: restore-baseline
@@ -40,9 +40,7 @@ jobs:
       - name: Install Mnemo to temp dir
         run: |
           mkdir -p /tmp/mnemo-nightly
-          pwsh -ExecutionPolicy Bypass -File memory.ps1 \
-            -RepoRoot /tmp/mnemo-nightly \
-            -ProjectName NightlyBench || true
+          sh ./memory_mac.sh --repo-root /tmp/mnemo-nightly --project-name NightlyBench
 
       - name: Run benchmark
         id: benchmark
