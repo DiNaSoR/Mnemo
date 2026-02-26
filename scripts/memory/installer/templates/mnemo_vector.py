@@ -525,18 +525,39 @@ def vector_sync() -> str:
 
         f_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         row = db.execute("SELECT hash FROM file_meta WHERE path = ?", (str_path,)).fetchone()
-        if row and row[0] == f_hash:
+        if row and row["hash"] == f_hash:
             skipped += 1
             continue
 
-        db.execute("DELETE FROM vec_memory WHERE source_file = ?", (str_path,))
         _upsert_memory_unit(db, str_path, f_hash)
         chunks = chunk_markdown(content, file_path)
-        embedded = 0
+
+        existing_refs = {
+            r["ref_path"]: r["content"]
+            for r in db.execute(
+                "SELECT ref_path, content FROM vec_memory WHERE source_file = ?", (str_path,)
+            ).fetchall()
+        }
+
+        new_refs = {ref for _, ref in chunks}
+        for stale_ref in set(existing_refs) - new_refs:
+            db.execute("DELETE FROM vec_memory WHERE source_file = ? AND ref_path = ?", (str_path, stale_ref))
+
+        to_embed: list[tuple[str, str]] = []
+        for text, ref in chunks:
+            chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            existing_text = existing_refs.get(ref, "")
+            existing_chunk_hash = hashlib.sha256(existing_text.encode("utf-8")).hexdigest()[:16] if existing_text else ""
+            if chunk_hash == existing_chunk_hash:
+                continue
+            db.execute("DELETE FROM vec_memory WHERE source_file = ? AND ref_path = ?", (str_path, ref))
+            to_embed.append((text, ref))
+
+        embedded = len(chunks) - len(to_embed)
         chunk_errors = 0
 
-        for i in range(0, len(chunks), _batch_size()):
-            batch = chunks[i : i + _batch_size()]
+        for i in range(0, len(to_embed), _batch_size()):
+            batch = to_embed[i : i + _batch_size()]
             texts = [text for text, _ in batch]
             try:
                 vectors = get_embeddings(texts)
@@ -558,16 +579,12 @@ def vector_sync() -> str:
                     except Exception:
                         chunk_errors += 1
 
-        if chunk_errors == 0:
-            db.execute(
-                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
-                (str_path, f_hash, embedded),
-            )
-        else:
-            db.execute(
-                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
-                (str_path, "DIRTY", embedded),
-            )
+        status_hash = f_hash if chunk_errors == 0 else "DIRTY"
+        db.execute(
+            "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
+            (str_path, status_hash, embedded),
+        )
+        if chunk_errors:
             errors += chunk_errors
         updated += 1
 
