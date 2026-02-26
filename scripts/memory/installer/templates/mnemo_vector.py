@@ -186,7 +186,6 @@ SKIP_DIRS = {"legacy", "templates"}
 MAX_EMBED_CHARS = 12000
 def _batch_size() -> int:
     return 16 if _S.PROVIDER == "gemini" else 64
-_EMBED_CLIENT = None
 
 # Memory type authority weights for reranking
 AUTHORITY_WEIGHTS = {
@@ -225,29 +224,65 @@ def _infer_time_scope(memory_type: str) -> str:
 mcp = FastMCP("MnemoVector")
 
 
-def _trim_for_embedding(text: str) -> str:
-    return text[:MAX_EMBED_CHARS] if len(text) > MAX_EMBED_CHARS else text
+# ─── Embedding provider abstraction ──────────────────────────────────────────
+
+class _EmbedProvider:
+    """Base class for embedding providers. Subclass to add new providers."""
+    name: str = ""
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError
 
 
-def _get_embed_client():
-    global _EMBED_CLIENT
-    if _EMBED_CLIENT is not None:
-        return _EMBED_CLIENT
-
-    if _S.PROVIDER == "gemini":
+class _GeminiProvider(_EmbedProvider):
+    name = "gemini"
+    def __init__(self):
         key = _get_env_value("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
         from google import genai
-        _EMBED_CLIENT = genai.Client(api_key=key)
-        return _EMBED_CLIENT
+        self._client = genai.Client(api_key=key)
 
-    key = _get_env_value("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    from openai import OpenAI
-    _EMBED_CLIENT = OpenAI(api_key=key)
-    return _EMBED_CLIENT
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+        result = self._client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=texts,
+            config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
+        )
+        return [emb.values for emb in result.embeddings]
+
+
+class _OpenAIProvider(_EmbedProvider):
+    name = "openai"
+    def __init__(self):
+        key = _get_env_value("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        from openai import OpenAI
+        self._client = OpenAI(api_key=key)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        resp = self._client.embeddings.create(input=texts, model="text-embedding-3-small")
+        return [item.embedding for item in resp.data]
+
+
+_PROVIDERS = {"gemini": _GeminiProvider, "openai": _OpenAIProvider}
+_ACTIVE_PROVIDER: _EmbedProvider | None = None
+
+
+def _get_provider() -> _EmbedProvider:
+    global _ACTIVE_PROVIDER
+    if _ACTIVE_PROVIDER is not None:
+        return _ACTIVE_PROVIDER
+    cls = _PROVIDERS.get(_S.PROVIDER)
+    if cls is None:
+        raise RuntimeError(f"Unknown embedding provider: {_S.PROVIDER!r}. Available: {list(_PROVIDERS)}")
+    _ACTIVE_PROVIDER = cls()
+    return _ACTIVE_PROVIDER
+
+
+def _trim_for_embedding(text: str) -> str:
+    return text[:MAX_EMBED_CHARS] if len(text) > MAX_EMBED_CHARS else text
 
 
 def get_embeddings(texts: list[str]) -> list[list[float]]:
@@ -256,26 +291,15 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
     trimmed = [_trim_for_embedding(t) for t in texts]
     if any(not t.strip() for t in trimmed):
         trimmed = [t if t.strip() else " " for t in trimmed]
-    client = _get_embed_client()
+    provider = _get_provider()
 
     import time as _time
     last_err: Exception | None = None
     for attempt in range(_EMBED_MAX_RETRIES):
         try:
-            if _S.PROVIDER == "gemini":
-                from google.genai import types
-                result = client.models.embed_content(
-                    model="gemini-embedding-001",
-                    contents=trimmed,
-                    config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
-                )
-                vectors = [emb.values for emb in result.embeddings]
-            else:
-                resp = client.embeddings.create(input=trimmed, model="text-embedding-3-small")
-                vectors = [item.embedding for item in resp.data]
-
+            vectors = provider.embed(trimmed)
             if len(vectors) != len(trimmed):
-                raise RuntimeError(f"Embedding provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
+                raise RuntimeError(f"Provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
             return vectors
         except Exception as e:
             last_err = e
