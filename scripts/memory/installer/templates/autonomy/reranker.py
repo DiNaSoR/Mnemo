@@ -141,7 +141,7 @@ class ScoreFusionReranker:
         raw_results: each dict must have at least ref_path, content, distance.
         Returns top_k RankedResult sorted by final_score desc.
         """
-        from autonomy.ingest_pipeline import AUTHORITY_WEIGHTS, _infer_memory_type, _infer_time_scope
+        from autonomy.common import AUTHORITY_WEIGHTS, infer_memory_type as _infer_memory_type, infer_time_scope as _infer_time_scope
 
         ranked: list[RankedResult] = []
 

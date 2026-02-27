@@ -17,11 +17,13 @@ from pathlib import Path
 from typing import Optional
 
 from autonomy.schema import get_db
-
-SKIP_NAMES = frozenset({"README.md", "index.md", "lessons-index.json",
-                        "journal-index.json", "journal-index.md"})
-SKIP_DIRS = frozenset({"legacy", "templates"})
-MAX_CHUNK_CHARS = 10000
+from autonomy.common import (
+    SKIP_NAMES, SKIP_DIRS, MAX_CHUNK_CHARS, AUTHORITY_WEIGHTS,
+    infer_memory_type as _infer_memory_type,
+    infer_time_scope as _infer_time_scope,
+    infer_sensitivity as _infer_sensitivity,
+    chunk_markdown as _chunk_markdown,
+)
 
 
 def _resolve_memory_root(repo_root: Path) -> Path:
@@ -39,16 +41,6 @@ def _resolve_memory_root(repo_root: Path) -> Path:
     return candidates[0]
 
 
-AUTHORITY_WEIGHTS: dict[str, float] = {
-    "core": 1.0,
-    "procedural": 0.9,
-    "semantic": 0.8,
-    "episodic": 0.7,
-    "resource": 0.5,
-    "vault": 0.0,
-}
-
-
 @dataclass
 class MemoryUnit:
     unit_id: str
@@ -64,92 +56,8 @@ class MemoryUnit:
     is_new: bool = True
 
 
-def _infer_memory_type(path_str: str) -> str:
-    p = path_str.lower().replace("\\", "/")
-    if "hot-rules" in p or "memo.md" in p:
-        return "core"
-    if "/lessons/" in p and re.search(r"/l-\d+", p):
-        return "procedural"
-    if "/journal/" in p or "active-context" in p:
-        return "episodic"
-    if "/digests/" in p:
-        return "semantic"
-    if "/vault/" in p:
-        return "vault"
-    if "/adr/" in p:
-        return "semantic"
-    return "semantic"
-
-
-def _infer_time_scope(memory_type: str) -> str:
-    if memory_type == "episodic":
-        return "recency-sensitive"
-    if memory_type in ("core", "procedural"):
-        return "atemporal"
-    return "time-bound"
-
-
-def _infer_sensitivity(path_str: str) -> str:
-    p = path_str.lower()
-    if "/vault/" in p or "secret" in p or ".secret." in p:
-        return "secret"
-    return "public"
-
-
 def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _chunk_markdown(content: str, file_path: Path) -> list[tuple[str, str]]:
-    """Split markdown content into (text, ref_path) chunks."""
-    chunks: list[tuple[str, str]] = []
-    path_str = str(file_path).replace("\\", "/")
-
-    # Journal: split by date headings
-    if "journal/" in path_str.lower():
-        parts = re.split(r"^(##\s+\d{4}-\d{2}-\d{2})", content, flags=re.MULTILINE)
-        preamble = parts[0].strip()
-        if preamble:
-            chunks.append((preamble, f"@{path_str}"))
-        i = 1
-        while i < len(parts) - 1:
-            heading = parts[i].strip()
-            body = parts[i + 1].strip()
-            date_val = heading.replace("##", "").strip()
-            chunk_text = f"{heading}\n{body}".strip()
-            if chunk_text:
-                chunks.append((chunk_text[:MAX_CHUNK_CHARS], f"@{path_str}#{date_val}"))
-            i += 2
-        return chunks
-
-    # Lessons: single chunk per lesson file
-    if re.search(r"/lessons/l-\d+", path_str.lower()):
-        text = content.strip()
-        if text:
-            m = re.match(r"(L-\d{3})", file_path.name)
-            ref = f"@{path_str}#{m.group(1)}" if m else f"@{path_str}"
-            chunks.append((text[:MAX_CHUNK_CHARS], ref))
-        return chunks
-
-    # General: split by headers
-    parts = re.split(r"^(#{1,4}\s+.+)$", content, flags=re.MULTILINE)
-    preamble = parts[0].strip()
-    if preamble:
-        chunks.append((preamble[:MAX_CHUNK_CHARS], f"@{path_str}"))
-
-    i = 1
-    while i < len(parts) - 1:
-        heading_line = parts[i].strip()
-        body = parts[i + 1].strip()
-        heading_text = re.sub(r"^#{1,4}\s+", "", heading_line)
-        full = f"{heading_line}\n{body}".strip() if body else heading_line
-        if full:
-            chunks.append((full[:MAX_CHUNK_CHARS], f"@{path_str}#{heading_text}"))
-        i += 2
-
-    if not chunks and content.strip():
-        chunks.append((content.strip()[:MAX_CHUNK_CHARS], f"@{path_str}"))
-    return chunks
 
 
 class IngestPipeline:

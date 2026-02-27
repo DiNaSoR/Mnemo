@@ -39,5 +39,22 @@
       "mnemo_vector.py",
       "01-vector-search.mdc"
     ]
+  },
+  {
+    "query": "rebuild memory index digest",
+    "description": "Rebuild query - should find rebuild scripts or index files",
+    "relevant_refs": [
+      "index.md",
+      "hot-rules.md"
+    ]
+  },
+  {
+    "query": "gitignore memory sqlite",
+    "description": "Gitignore query - mentions patterns present in installer",
+    "relevant_refs": [
+      "hot-rules.md",
+      "memo.md",
+      "index.md"
+    ]
   }
 ]

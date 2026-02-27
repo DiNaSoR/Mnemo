@@ -22,6 +22,10 @@ from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 2
 EMBED_DIM = 1536
+MAX_TOP_K = 200
+_VEC_KNN_LIMIT = 4096
+_EMBED_MAX_RETRIES = 3
+_EMBED_RETRY_BASE_S = 1.0
 
 
 def _resolve_memory_root() -> Path:
@@ -122,12 +126,57 @@ def _resolve_provider() -> str:
     return "gemini" if _get_env_value("GEMINI_API_KEY") else "openai"
 
 
-MEM_ROOT = _resolve_memory_root()
-REPO_ROOT = _resolve_repo_root(MEM_ROOT)
-_load_project_env(REPO_ROOT)
-_DB_OVERRIDE = os.getenv("MNEMO_DB_PATH", "").strip()
-DB_PATH = Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else (MEM_ROOT / "mnemo_vector.sqlite")
-PROVIDER = _resolve_provider()
+class _LazyState:
+    """Lazy-initialized module state — no file I/O or env mutation at import time."""
+
+    def __init__(self):
+        self._init_done = False
+        self._mem_root: Path | None = None
+        self._repo_root: Path | None = None
+        self._db_path: Path | None = None
+        self._provider: str | None = None
+
+    def _ensure_init(self) -> None:
+        if self._init_done:
+            return
+        self._mem_root = _resolve_memory_root()
+        self._repo_root = _resolve_repo_root(self._mem_root)
+        _load_project_env(self._repo_root)
+        db_override = os.getenv("MNEMO_DB_PATH", "").strip()
+        self._db_path = Path(db_override).expanduser().resolve() if db_override else (self._mem_root / "mnemo_vector.sqlite")
+        self._provider = _resolve_provider()
+        self._init_done = True
+
+    @property
+    def MEM_ROOT(self) -> Path:
+        self._ensure_init()
+        return self._mem_root  # type: ignore[return-value]
+
+    @property
+    def REPO_ROOT(self) -> Path:
+        self._ensure_init()
+        return self._repo_root  # type: ignore[return-value]
+
+    @property
+    def DB_PATH(self) -> Path:
+        self._ensure_init()
+        return self._db_path  # type: ignore[return-value]
+
+    @property
+    def PROVIDER(self) -> str:
+        self._ensure_init()
+        return self._provider  # type: ignore[return-value]
+
+
+_S = _LazyState()
+
+
+def __getattr__(name: str):
+    """Lazy module-level attribute access for backward compatibility."""
+    if name in ("MEM_ROOT", "REPO_ROOT", "DB_PATH", "PROVIDER"):
+        return getattr(_S, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 SKIP_NAMES = {
     "README.md", "index.md", "lessons-index.json",
@@ -135,8 +184,8 @@ SKIP_NAMES = {
 }
 SKIP_DIRS = {"legacy", "templates"}
 MAX_EMBED_CHARS = 12000
-BATCH_SIZE = 16 if PROVIDER == "gemini" else 64
-_EMBED_CLIENT = None
+def _batch_size() -> int:
+    return 16 if _S.PROVIDER == "gemini" else 64
 
 # Memory type authority weights for reranking
 AUTHORITY_WEIGHTS = {
@@ -175,167 +224,209 @@ def _infer_time_scope(memory_type: str) -> str:
 mcp = FastMCP("MnemoVector")
 
 
-def _trim_for_embedding(text: str) -> str:
-    return text[:MAX_EMBED_CHARS] if len(text) > MAX_EMBED_CHARS else text
+# ─── Rate limiter for embedding API calls ─────────────────────────────────────
+
+class _RateLimiter:
+    """Simple sliding-window rate limiter to prevent API quota exhaustion."""
+
+    def __init__(self, max_calls: int = 60, window_s: float = 60.0):
+        self._max = max_calls
+        self._window = window_s
+        self._timestamps: list[float] = []
+
+    def acquire(self) -> None:
+        import time as _t
+        now = _t.time()
+        self._timestamps = [t for t in self._timestamps if now - t < self._window]
+        if len(self._timestamps) >= self._max:
+            sleep_for = self._window - (now - self._timestamps[0]) + 0.1
+            if sleep_for > 0:
+                _t.sleep(sleep_for)
+        self._timestamps.append(now if not self._timestamps or now > self._timestamps[-1] else self._timestamps[-1])
 
 
-def _get_embed_client():
-    global _EMBED_CLIENT
-    if _EMBED_CLIENT is not None:
-        return _EMBED_CLIENT
+_RATE_LIMITER = _RateLimiter(max_calls=60, window_s=60.0)
 
-    if PROVIDER == "gemini":
+
+# ─── Embedding provider abstraction ──────────────────────────────────────────
+
+class _EmbedProvider:
+    """Base class for embedding providers. Subclass to add new providers."""
+    name: str = ""
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError
+
+
+class _GeminiProvider(_EmbedProvider):
+    name = "gemini"
+    def __init__(self):
         key = _get_env_value("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
         from google import genai
-        _EMBED_CLIENT = genai.Client(api_key=key)
-        return _EMBED_CLIENT
+        self._client = genai.Client(api_key=key)
 
-    key = _get_env_value("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    from openai import OpenAI
-    _EMBED_CLIENT = OpenAI(api_key=key)
-    return _EMBED_CLIENT
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+        result = self._client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=texts,
+            config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
+        )
+        return [emb.values for emb in result.embeddings]
+
+
+class _OpenAIProvider(_EmbedProvider):
+    name = "openai"
+    def __init__(self):
+        key = _get_env_value("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        from openai import OpenAI
+        self._client = OpenAI(api_key=key)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        resp = self._client.embeddings.create(input=texts, model="text-embedding-3-small")
+        return [item.embedding for item in resp.data]
+
+
+_PROVIDERS = {"gemini": _GeminiProvider, "openai": _OpenAIProvider}
+_ACTIVE_PROVIDER: _EmbedProvider | None = None
+
+
+def _get_provider() -> _EmbedProvider:
+    global _ACTIVE_PROVIDER
+    if _ACTIVE_PROVIDER is not None:
+        return _ACTIVE_PROVIDER
+    cls = _PROVIDERS.get(_S.PROVIDER)
+    if cls is None:
+        raise RuntimeError(f"Unknown embedding provider: {_S.PROVIDER!r}. Available: {list(_PROVIDERS)}")
+    _ACTIVE_PROVIDER = cls()
+    return _ACTIVE_PROVIDER
+
+
+def _trim_for_embedding(text: str) -> str:
+    return text[:MAX_EMBED_CHARS] if len(text) > MAX_EMBED_CHARS else text
 
 
 def get_embeddings(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     trimmed = [_trim_for_embedding(t) for t in texts]
-    client = _get_embed_client()
+    if any(not t.strip() for t in trimmed):
+        trimmed = [t if t.strip() else " " for t in trimmed]
+    provider = _get_provider()
 
-    if PROVIDER == "gemini":
-        from google.genai import types
-        result = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=trimmed,
-            config=types.EmbedContentConfig(output_dimensionality=EMBED_DIM),
-        )
-        vectors = [emb.values for emb in result.embeddings]
-    else:
-        resp = client.embeddings.create(input=trimmed, model="text-embedding-3-small")
-        vectors = [item.embedding for item in resp.data]
-
-    if len(vectors) != len(trimmed):
-        raise RuntimeError(f"Embedding provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
-    return vectors
+    import time as _time
+    last_err: Exception | None = None
+    for attempt in range(_EMBED_MAX_RETRIES):
+        _RATE_LIMITER.acquire()
+        try:
+            vectors = provider.embed(trimmed)
+            if len(vectors) != len(trimmed):
+                raise RuntimeError(f"Provider returned {len(vectors)} vectors for {len(trimmed)} inputs")
+            return vectors
+        except Exception as e:
+            last_err = e
+            if attempt < _EMBED_MAX_RETRIES - 1:
+                _time.sleep(_EMBED_RETRY_BASE_S * (2 ** attempt))
+    raise RuntimeError(f"Embedding failed after {_EMBED_MAX_RETRIES} attempts: {last_err}")
 
 
 def get_embedding(text: str) -> list[float]:
     return get_embeddings([text])[0]
 
 
-def get_db() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(str(DB_PATH), timeout=30)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA busy_timeout=10000")
-    db.enable_load_extension(True)
-    sqlite_vec.load(db)
-    return db
+def _try_import_schema_module():
+    """Try to import the canonical schema module from the autonomy package."""
+    try:
+        script_dir = Path(__file__).resolve().parent
+        autonomy_dir = script_dir / "autonomy"
+        if autonomy_dir.is_dir():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "autonomy.schema", str(autonomy_dir / "schema.py")
+            )
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+    except Exception:
+        pass
+    return None
 
 
 def init_db() -> sqlite3.Connection:
-    db = get_db()
+    """Initialize DB with full schema. Delegates to autonomy.schema when available."""
+    _schema_mod = _try_import_schema_module()
+    if _schema_mod is not None:
+        return _schema_mod.get_db(db_path=_S.DB_PATH)
+
+    _S.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(str(_S.DB_PATH), timeout=30)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA foreign_keys=ON")
+    db.execute("PRAGMA busy_timeout=10000")
+    db.enable_load_extension(True)
+    sqlite_vec.load(db)
+
     db.execute("CREATE TABLE IF NOT EXISTS schema_info (key TEXT PRIMARY KEY, value TEXT)")
     row = db.execute("SELECT value FROM schema_info WHERE key='version'").fetchone()
-    ver = int(row[0]) if row else 0
+    ver = int(row["value"] if row else 0)
 
     if ver < 1:
         db.execute("DROP TABLE IF EXISTS file_meta")
         db.execute("DROP TABLE IF EXISTS vec_memory")
-        db.execute(
-            """
+        db.execute("""
             CREATE TABLE file_meta (
-                path TEXT PRIMARY KEY,
-                hash TEXT NOT NULL,
+                path TEXT PRIMARY KEY, hash TEXT NOT NULL,
                 chunk_count INTEGER DEFAULT 0,
                 updated_at REAL DEFAULT (unixepoch('now'))
             )
-            """
-        )
-        db.execute(
-            f"""
+        """)
+        db.execute(f"""
             CREATE VIRTUAL TABLE vec_memory USING vec0(
                 embedding float[{EMBED_DIM}] distance_metric=cosine,
-                +ref_path TEXT,
-                +content TEXT,
-                +source_file TEXT
+                +ref_path TEXT, +content TEXT, +source_file TEXT
             )
-            """
-        )
+        """)
 
     if ver < SCHEMA_VERSION:
-        # v2: typed memory units, fact lifecycle, entity tables
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memory_units (
-                unit_id      TEXT PRIMARY KEY,
-                source_ref   TEXT NOT NULL,
-                memory_type  TEXT NOT NULL DEFAULT 'semantic',
-                authority    REAL NOT NULL DEFAULT 0.5,
-                time_scope   TEXT NOT NULL DEFAULT 'time-bound',
-                sensitivity  TEXT NOT NULL DEFAULT 'public',
-                entity_tags  TEXT NOT NULL DEFAULT '[]',
-                content_hash TEXT NOT NULL,
-                created_at   REAL DEFAULT (unixepoch('now')),
-                updated_at   REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS facts (
-                fact_id        TEXT PRIMARY KEY,
-                canonical_fact TEXT NOT NULL,
-                status         TEXT NOT NULL DEFAULT 'active',
-                confidence     REAL NOT NULL DEFAULT 1.0,
-                source_ref     TEXT NOT NULL,
-                created_at     REAL DEFAULT (unixepoch('now')),
-                updated_at     REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lifecycle_events (
-                event_id   TEXT PRIMARY KEY,
-                unit_id    TEXT NOT NULL,
-                operation  TEXT NOT NULL,
-                old_status TEXT,
-                new_status TEXT,
-                reason     TEXT,
-                ts         REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entities (
-                entity_id   TEXT PRIMARY KEY,
-                entity_name TEXT NOT NULL,
-                entity_type TEXT NOT NULL DEFAULT 'general',
-                confidence  REAL NOT NULL DEFAULT 1.0,
-                created_at  REAL DEFAULT (unixepoch('now'))
-            )
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_aliases (
-                alias_id    TEXT PRIMARY KEY,
-                entity_id   TEXT NOT NULL,
-                alias_text  TEXT NOT NULL,
-                confidence  REAL NOT NULL DEFAULT 1.0
-            )
-            """
-        )
-        db.execute(
-            "INSERT OR REPLACE INTO schema_info(key, value) VALUES ('version', ?)",
-            (str(SCHEMA_VERSION),),
-        )
+        for ddl in [
+            """CREATE TABLE IF NOT EXISTS memory_units (
+                unit_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL UNIQUE,
+                memory_type TEXT NOT NULL DEFAULT 'semantic', authority REAL NOT NULL DEFAULT 0.5,
+                time_scope TEXT NOT NULL DEFAULT 'time-bound', sensitivity TEXT NOT NULL DEFAULT 'public',
+                entity_tags TEXT NOT NULL DEFAULT '[]', content_hash TEXT NOT NULL,
+                created_at REAL DEFAULT (unixepoch('now')), updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS facts (
+                fact_id TEXT PRIMARY KEY, canonical_fact TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active', confidence REAL NOT NULL DEFAULT 1.0,
+                source_ref TEXT NOT NULL,
+                created_at REAL DEFAULT (unixepoch('now')), updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS lifecycle_events (
+                event_id TEXT PRIMARY KEY, unit_id TEXT NOT NULL,
+                operation TEXT NOT NULL, old_status TEXT, new_status TEXT, reason TEXT,
+                ts REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS entities (
+                entity_id TEXT PRIMARY KEY, entity_name TEXT NOT NULL,
+                entity_type TEXT NOT NULL DEFAULT 'general', confidence REAL NOT NULL DEFAULT 1.0,
+                created_at REAL DEFAULT (unixepoch('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS entity_aliases (
+                alias_id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(entity_id),
+                alias_text TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0, UNIQUE(alias_text)
+            )""",
+            """CREATE TABLE IF NOT EXISTS autonomy_state (
+                key TEXT PRIMARY KEY, value TEXT, updated_at REAL DEFAULT (unixepoch('now'))
+            )""",
+        ]:
+            db.execute(ddl)
+        db.execute("INSERT OR REPLACE INTO schema_info(key, value) VALUES ('version', ?)", (str(SCHEMA_VERSION),))
         db.commit()
     return db
 
@@ -428,7 +519,7 @@ def vector_sync() -> str:
         return f"DB init failed: {e}"
 
     files: dict[str, Path] = {}
-    for p in MEM_ROOT.glob("**/*.md"):
+    for p in _S.MEM_ROOT.glob("**/*.md"):
         if p.name in SKIP_NAMES:
             continue
         if any(skip in p.parts for skip in SKIP_DIRS):
@@ -459,18 +550,39 @@ def vector_sync() -> str:
 
         f_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         row = db.execute("SELECT hash FROM file_meta WHERE path = ?", (str_path,)).fetchone()
-        if row and row[0] == f_hash:
+        if row and row["hash"] == f_hash:
             skipped += 1
             continue
 
-        db.execute("DELETE FROM vec_memory WHERE source_file = ?", (str_path,))
         _upsert_memory_unit(db, str_path, f_hash)
         chunks = chunk_markdown(content, file_path)
-        embedded = 0
+
+        existing_refs = {
+            r["ref_path"]: r["content"]
+            for r in db.execute(
+                "SELECT ref_path, content FROM vec_memory WHERE source_file = ?", (str_path,)
+            ).fetchall()
+        }
+
+        new_refs = {ref for _, ref in chunks}
+        for stale_ref in set(existing_refs) - new_refs:
+            db.execute("DELETE FROM vec_memory WHERE source_file = ? AND ref_path = ?", (str_path, stale_ref))
+
+        to_embed: list[tuple[str, str]] = []
+        for text, ref in chunks:
+            chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            existing_text = existing_refs.get(ref, "")
+            existing_chunk_hash = hashlib.sha256(existing_text.encode("utf-8")).hexdigest()[:16] if existing_text else ""
+            if chunk_hash == existing_chunk_hash:
+                continue
+            db.execute("DELETE FROM vec_memory WHERE source_file = ? AND ref_path = ?", (str_path, ref))
+            to_embed.append((text, ref))
+
+        embedded = len(chunks) - len(to_embed)
         chunk_errors = 0
 
-        for i in range(0, len(chunks), BATCH_SIZE):
-            batch = chunks[i : i + BATCH_SIZE]
+        for i in range(0, len(to_embed), _batch_size()):
+            batch = to_embed[i : i + _batch_size()]
             texts = [text for text, _ in batch]
             try:
                 vectors = get_embeddings(texts)
@@ -492,16 +604,12 @@ def vector_sync() -> str:
                     except Exception:
                         chunk_errors += 1
 
-        if chunk_errors == 0:
-            db.execute(
-                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
-                (str_path, f_hash, embedded),
-            )
-        else:
-            db.execute(
-                "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
-                (str_path, "DIRTY", embedded),
-            )
+        status_hash = f_hash if chunk_errors == 0 else "DIRTY"
+        db.execute(
+            "INSERT OR REPLACE INTO file_meta(path, hash, chunk_count, updated_at) VALUES (?, ?, ?, unixepoch('now'))",
+            (str_path, status_hash, embedded),
+        )
+        if chunk_errors:
             errors += chunk_errors
         updated += 1
 
@@ -514,14 +622,19 @@ def vector_sync() -> str:
 
 
 @mcp.tool()
-def vector_search(query: str, top_k: int = 5) -> str:
-    """Semantic search with authority-aware reranking."""
+def vector_search(query: str, top_k: int = 5, memory_type: str = "") -> str:
+    """Semantic search with authority-aware reranking. Optional memory_type filter (core/procedural/episodic/semantic)."""
+    if not query or not query.strip():
+        return "Please provide a search query."
+    top_k = max(1, min(top_k, MAX_TOP_K))
+    fetch_k = min(top_k * 3, _VEC_KNN_LIMIT)
+
     try:
         db = init_db()
         emb = get_embedding(query)
         rows = db.execute(
             "SELECT ref_path, content, distance FROM vec_memory WHERE embedding MATCH ? AND k = ? ORDER BY distance",
-            (serialize_f32(emb), top_k * 3),  # over-fetch for reranking
+            (serialize_f32(emb), fetch_k),
         ).fetchall()
         db.close()
     except Exception as e:
@@ -530,14 +643,17 @@ def vector_search(query: str, top_k: int = 5) -> str:
     if not rows:
         return "No relevant memory found."
 
-    # Rerank: combine semantic score with authority weight
+    type_filter = memory_type.strip().lower() if memory_type else ""
+
     reranked = []
-    for ref, content, dist in rows:
+    for row in rows:
+        ref, content, dist = row["ref_path"], row["content"], row["distance"]
         sem_score = round(1.0 - dist, 4)
         mem_type = _infer_memory_type(ref)
         auth_weight = AUTHORITY_WEIGHTS.get(mem_type, 0.5)
-        # Skip vault entries entirely (sensitivity guard)
         if mem_type == "vault":
+            continue
+        if type_filter and mem_type != type_filter:
             continue
         # Temporal boost for recency-sensitive types when query mentions time words
         temporal_boost = 0.0
@@ -557,16 +673,22 @@ def vector_search(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(out)
 
 
+def _escape_like(pattern: str) -> str:
+    """Escape LIKE special characters so they match literally."""
+    return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @mcp.tool()
 def vector_forget(path_pattern: str = "") -> str:
     try:
         db = init_db()
         removed = 0
         if path_pattern:
-            like = f"%{path_pattern}%"
-            r1 = db.execute("DELETE FROM vec_memory WHERE source_file LIKE ?", (like,)).rowcount
-            r2 = db.execute("DELETE FROM file_meta WHERE path LIKE ?", (like,)).rowcount
-            db.execute("DELETE FROM memory_units WHERE source_ref LIKE ?", (like,))
+            escaped = _escape_like(path_pattern)
+            like = f"%{escaped}%"
+            r1 = db.execute("DELETE FROM vec_memory WHERE source_file LIKE ? ESCAPE '\\'", (like,)).rowcount
+            r2 = db.execute("DELETE FROM file_meta WHERE path LIKE ? ESCAPE '\\'", (like,)).rowcount
+            db.execute("DELETE FROM memory_units WHERE source_ref LIKE ? ESCAPE '\\'", (like,))
             removed = max(r1, r2)
         else:
             known = db.execute("SELECT path FROM file_meta").fetchall()
@@ -608,9 +730,9 @@ def vector_health() -> str:
 
     try:
         _ = get_embedding("health check")
-        lines.append(f"Embedding API ({PROVIDER}): OK")
+        lines.append(f"Embedding API ({_S.PROVIDER}): OK")
     except Exception as e:
-        lines.append(f"Embedding API ({PROVIDER}): FAILED - {e}")
+        lines.append(f"Embedding API ({_S.PROVIDER}): FAILED - {e}")
     return "\n".join(lines)
 
 
@@ -640,8 +762,19 @@ def memory_status() -> str:
         return json.dumps({"error": str(e)})
 
 
+_VERBOSE = False
+
+
+def _vlog(msg: str) -> None:
+    """Print verbose diagnostic messages when --verbose is active."""
+    if _VERBOSE:
+        print(f"  [verbose] {msg}", flush=True)
+
+
 def _run_cli(argv: list[str]) -> int:
+    global _VERBOSE
     parser = argparse.ArgumentParser(description="Mnemo vector CLI")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed diagnostic output")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("sync", help="Rebuild vector index from memory markdown files")
@@ -657,6 +790,11 @@ def _run_cli(argv: list[str]) -> int:
     sub.add_parser("status", help="Return JSON memory status summary")
 
     args = parser.parse_args(argv)
+    _VERBOSE = args.verbose
+    if _VERBOSE:
+        _vlog(f"Provider: {_S.PROVIDER}")
+        _vlog(f"DB: {_S.DB_PATH}")
+        _vlog(f"Memory root: {_S.MEM_ROOT}")
     try:
         if args.command == "sync":
             print(vector_sync())

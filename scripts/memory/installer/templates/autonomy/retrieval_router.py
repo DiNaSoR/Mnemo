@@ -120,18 +120,33 @@ class RetrievalRouter:
         # Fallback: add any missing from global pool
         if len(candidates) < top_k:
             existing_ids = {c["unit_id"] for c in candidates}
-            extra = self.db.execute(
-                """
-                SELECT mu.unit_id, mu.source_ref, mu.memory_type, mu.authority,
-                       mu.time_scope, mu.entity_tags, mu.sensitivity
-                FROM memory_units mu
-                WHERE mu.unit_id NOT IN ({})
-                  AND mu.sensitivity != 'secret'
-                ORDER BY mu.authority DESC, mu.updated_at DESC
-                LIMIT ?
-                """.format(",".join("?" * len(existing_ids)) if existing_ids else "'__none__'"),
-                tuple(existing_ids) + (top_k - len(candidates),) if existing_ids else (top_k - len(candidates),),
-            ).fetchall()
+            remaining = top_k - len(candidates)
+            if existing_ids:
+                placeholders = ",".join("?" * len(existing_ids))
+                extra = self.db.execute(
+                    f"""
+                    SELECT mu.unit_id, mu.source_ref, mu.memory_type, mu.authority,
+                           mu.time_scope, mu.entity_tags, mu.sensitivity
+                    FROM memory_units mu
+                    WHERE mu.unit_id NOT IN ({placeholders})
+                      AND mu.sensitivity != 'secret'
+                    ORDER BY mu.authority DESC, mu.updated_at DESC
+                    LIMIT ?
+                    """,
+                    (*existing_ids, remaining),
+                ).fetchall()
+            else:
+                extra = self.db.execute(
+                    """
+                    SELECT mu.unit_id, mu.source_ref, mu.memory_type, mu.authority,
+                           mu.time_scope, mu.entity_tags, mu.sensitivity
+                    FROM memory_units mu
+                    WHERE mu.sensitivity != 'secret'
+                    ORDER BY mu.authority DESC, mu.updated_at DESC
+                    LIMIT ?
+                    """,
+                    (remaining,),
+                ).fetchall()
             for row in extra:
                 candidates.append(dict(row))
 

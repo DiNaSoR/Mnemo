@@ -74,13 +74,16 @@ def _acquire_lock() -> bool:
             age = time.time() - mtime
             if age < MAX_LOCK_AGE_S:
                 return False
-            # Stale lock — remove and proceed
             lock_path.unlink()
         except OSError:
             return False
     try:
-        lock_path.write_text(str(os.getpid()), encoding="utf-8")
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
         return True
+    except FileExistsError:
+        return False
     except OSError:
         return False
 

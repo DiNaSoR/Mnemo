@@ -257,8 +257,8 @@ if should_run gitignore-dedup; then
   run_installer "$dest" --force >/dev/null
   gi="$dest/.gitignore"
   if [ -f "$gi" ]; then
-    count_cursor="$(grep -c ".cursor/memory/memory.sqlite" "$gi" 2>/dev/null || echo 0)"
-    count_mnemo="$(grep -c ".mnemo/memory/memory.sqlite" "$gi" 2>/dev/null || echo 0)"
+    count_cursor="$(grep -c '.cursor/memory/memory.sqlite' "$gi" 2>/dev/null)" || count_cursor=0
+    count_mnemo="$(grep -c '.mnemo/memory/memory.sqlite' "$gi" 2>/dev/null)" || count_mnemo=0
     if [ "$count_cursor" -gt 1 ] || [ "$count_mnemo" -gt 1 ]; then
       fail gitignore-dedup "duplicate memory.sqlite ignores (cursor=$count_cursor, mnemo=$count_mnemo)"
     else
@@ -339,6 +339,53 @@ if should_run missing-python; then
     [ -f "$dest/.mnemo/memory/hot-rules.md" ] && pass missing-python || fail missing-python "Installer failed when Python was missing"
   }
   rm -rf "$dest" "$fake_bin"
+fi
+
+# ─── TEST: vector-cli-empty-query ─────────────────────────────────────────────
+if should_run vector-cli-empty-query; then
+  if ! command -v python3 >/dev/null 2>&1 \
+    || ! python3 -c 'import sqlite_vec' 2>/dev/null; then
+    skip_test vector-cli-empty-query "python3 with sqlite_vec unavailable"
+  else
+    dest="$(make_dest)"
+    mkdir -p "$dest"
+    run_installer "$dest" --enable-vector >/dev/null 2>&1
+    if [ -f "$dest/scripts/memory/mnemo_vector.py" ]; then
+      out="$(cd "$dest" && python3 scripts/memory/mnemo_vector.py search "" --top-k 3 2>&1)" || true
+      if echo "$out" | grep -qi "provide a search query\|please provide"; then
+        pass vector-cli-empty-query
+      else
+        fail vector-cli-empty-query "Empty query did not return user-friendly message: $out"
+      fi
+    else
+      skip_test vector-cli-empty-query "vector install did not produce mnemo_vector.py"
+    fi
+    rm -rf "$dest"
+  fi
+fi
+
+# ─── TEST: vector-cli-topk-bounds ─────────────────────────────────────────────
+if should_run vector-cli-topk-bounds; then
+  if ! command -v python3 >/dev/null 2>&1 \
+    || ! python3 -c 'import sqlite_vec' 2>/dev/null; then
+    skip_test vector-cli-topk-bounds "python3 with sqlite_vec unavailable"
+  else
+    dest="$(make_dest)"
+    mkdir -p "$dest"
+    run_installer "$dest" --enable-vector >/dev/null 2>&1
+    if [ -f "$dest/scripts/memory/mnemo_vector.py" ]; then
+      # negative top_k should not crash
+      out="$(cd "$dest" && python3 scripts/memory/mnemo_vector.py search "test" --top-k -5 2>&1)" || true
+      if echo "$out" | grep -qi "error\|traceback"; then
+        fail vector-cli-topk-bounds "Negative top_k caused a crash: $out"
+      else
+        pass vector-cli-topk-bounds
+      fi
+    else
+      skip_test vector-cli-topk-bounds "vector install did not produce mnemo_vector.py"
+    fi
+    rm -rf "$dest"
+  fi
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────

@@ -30,6 +30,10 @@
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "test": "sh ./tests/test-installer.sh",
+    "test:help": "node bin/mnemo.js --help"
+  },
   "engines": {
     "node": ">=18"
   }

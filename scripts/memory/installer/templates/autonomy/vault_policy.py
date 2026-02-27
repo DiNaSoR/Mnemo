@@ -39,7 +39,7 @@ _POLICY_CACHE: dict | None = None
 _BUILTIN_SECRET_PATTERNS = [
     r"(?i)(api[_-]?key|secret[_-]?key|password|token|auth[_-]?token)\s*[:=]\s*\S+",
     r"(?i)bearer\s+[a-zA-Z0-9._-]{20,}",
-    r"[a-zA-Z0-9]{32,}",  # Long API keys (conservative - only in vault paths)
+    r"(?i)(?:sk|pk|key|secret|token)[_-][a-zA-Z0-9]{24,}",
 ]
 
 REDACTION_PLACEHOLDER = "[REDACTED]"
