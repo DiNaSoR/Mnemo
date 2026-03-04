@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-03-04
+
+### Added
+- `--verbose` flag, `memory_type` filter, and rate limiter to the vector engine.
+- Embedding provider abstraction interface for cleaner multi-provider support.
+- `npm test` script for contributors (`dx: add npm test script`).
+- `AGENTS.md` with Cursor Cloud–specific instructions.
+
+### Changed
+- Incremental chunk-level sync now skips unchanged chunks within changed files for faster `vector_sync`.
+- Extracted shared `common.py` to deduplicate constants and functions across vector modules.
+- Unified schema: `mnemo_vector.py` delegates to `schema.py` when available.
+- ShellCheck is now blocking in PR checks (removed `continue-on-error`).
+- CI: added POSIX LOC guard, Node.js CLI smoke tests, pinned deps, and additional test fixtures.
+
+### Fixed
+- Quoted variables in `query-memory.sh`; added `mv` error handling and fixed reranker import.
+- Renamed awk `in` variable to avoid `mawk` reserved keyword conflict (critical).
+- Nightly benchmark now uses `sh` instead of `pwsh` on Linux; pinned dependencies.
+- Quoted variable in `git add` to prevent word splitting (`memory_mac.sh:1540`).
+- Security and robustness fixes in autonomy modules.
+- Dash compatibility in gitignore-dedup test; added vector edge-case tests.
+- Made `e2e_pipeline_simulation.py` cross-platform (Linux/macOS/Windows).
+- `vector_search` input validation, retry logic, lazy init, and schema sync improvements.
+
+### CI
+- Bumped `actions/cache` from v4 to v5.
+- Bumped `actions/upload-artifact` from v4 to v7.
+- Bumped `actions/setup-node` from v4 to v6.
+- Bumped `actions/setup-python` from v5 to v6.
+
 ## [0.0.6] - 2026-02-22
 
 ### Added
@@ -95,7 +126,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 - Version string drift between installer metadata and generated output by using `VERSION` as single source of truth.
 - Python fallback handling in memory query flows that previously depended on a single interpreter name.
 
-[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.6...HEAD
+[Unreleased]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.7...HEAD
+[0.0.7]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/DiNaSoR/Mnemo/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/DiNaSoR/Mnemo/releases/tag/v0.0.4
