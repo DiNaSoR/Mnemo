@@ -11,7 +11,15 @@ from pathlib import Path
 import sqlite_vec
 
 SCHEMA_VERSION = 2
-EMBED_DIM = int(os.getenv("MNEMO_EMBED_DIM", "1536"))
+def _safe_embed_dim() -> int:
+    raw = os.getenv("MNEMO_EMBED_DIM", "1536").strip()
+    try:
+        val = int(raw)
+        return val if val > 0 else 1536
+    except ValueError:
+        return 1536
+
+EMBED_DIM = _safe_embed_dim()
 
 
 def _memory_root() -> Path:

@@ -20,6 +20,7 @@ from autonomy.ingest_pipeline import MemoryUnit
 
 ALIAS_MERGE_THRESHOLD = 0.85  # confidence required to merge aliases
 ENTITY_CONFIDENCE_DECAY = 0.02  # decay per cycle without reinforcement
+_MAX_FUZZY_CANDIDATES = 500  # max entities loaded for fuzzy matching
 
 
 @dataclass
@@ -143,23 +144,31 @@ class EntityResolver:
         """
         Find an entity whose name is highly similar (token Jaccard).
         Returns entity_id if confidence >= threshold, else None.
+
+        Uses a bounded query (LIMIT) to avoid full-table scans at scale.
         """
         candidates = self.db.execute(
-            "SELECT entity_id, entity_name FROM entities"
+            "SELECT entity_id, entity_name FROM entities ORDER BY confidence DESC LIMIT ?",
+            (_MAX_FUZZY_CANDIDATES,),
         ).fetchall()
 
         name_tokens = set(re.findall(r"\w+", name.lower()))
+        if not name_tokens:
+            return None
+
         best_id = None
         best_score = 0.0
 
         for row in candidates:
             cand_tokens = set(re.findall(r"\w+", row["entity_name"].lower()))
-            if not name_tokens or not cand_tokens:
+            if not cand_tokens:
                 continue
             score = len(name_tokens & cand_tokens) / len(name_tokens | cand_tokens)
             if score > best_score:
                 best_score = score
                 best_id = row["entity_id"]
+                if score >= 1.0:  # perfect match — no need to keep searching
+                    break
 
         return best_id if best_score >= ALIAS_MERGE_THRESHOLD else None
 

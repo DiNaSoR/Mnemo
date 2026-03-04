@@ -255,6 +255,7 @@ jobs:
         run: |
           for f in \
             scripts/memory/installer/templates/autonomy/__init__.py \
+            scripts/memory/installer/templates/autonomy/common.py \
             scripts/memory/installer/templates/autonomy/schema.py \
             scripts/memory/installer/templates/autonomy/runner.py \
             scripts/memory/installer/templates/autonomy/ingest_pipeline.py \

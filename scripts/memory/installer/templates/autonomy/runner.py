@@ -224,7 +224,8 @@ def run_schedule(repo_root: Path) -> None:
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _handle_signal)
 
     while True:
         if _acquire_lock():
@@ -248,7 +249,6 @@ def main() -> int:
     args = ap.parse_args()
 
     repo_root = Path(args.repo).resolve()
-    os.chdir(repo_root)
     global LOCK_PATH
     LOCK_PATH = resolve_memory_root(repo_root) / ".autonomy" / "runner.lock"
 

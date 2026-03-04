@@ -159,10 +159,11 @@ class LifecycleEngine:
         """
         Find existing active facts that are semantically contradicted by new_facts.
         Uses token Jaccard with high threshold — low false positive rate is more important than recall.
+        Bounded to most recent 200 facts to prevent full-table scans at scale.
         """
         contradicted: list[tuple[str, str]] = []
         existing = self.db.execute(
-            "SELECT fact_id, canonical_fact FROM facts WHERE status = 'active'"
+            "SELECT fact_id, canonical_fact FROM facts WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200"
         ).fetchall()
 
         contradiction_patterns = [

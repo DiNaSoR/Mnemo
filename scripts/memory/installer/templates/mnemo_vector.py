@@ -21,7 +21,14 @@ except ImportError:
 from mcp.server.fastmcp import FastMCP
 
 SCHEMA_VERSION = 2
-EMBED_DIM = 1536
+try:
+    from autonomy.schema import EMBED_DIM
+except ImportError:
+    _raw_dim = os.getenv("MNEMO_EMBED_DIM", "1536").strip()
+    try:
+        EMBED_DIM = int(_raw_dim) if int(_raw_dim) > 0 else 1536
+    except ValueError:
+        EMBED_DIM = 1536
 MAX_TOP_K = 200
 _VEC_KNN_LIMIT = 4096
 _EMBED_MAX_RETRIES = 3
@@ -178,47 +185,101 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-SKIP_NAMES = {
-    "README.md", "index.md", "lessons-index.json",
-    "journal-index.json", "journal-index.md",
-}
-SKIP_DIRS = {"legacy", "templates"}
-MAX_EMBED_CHARS = 12000
+# ─── Shared constants/utilities (import from common.py with fallback) ─────────
+try:
+    from autonomy.common import (
+        SKIP_NAMES, SKIP_DIRS, MAX_CHUNK_CHARS, MAX_EMBED_CHARS,
+        AUTHORITY_WEIGHTS,
+        infer_memory_type as _infer_memory_type,
+        infer_time_scope as _infer_time_scope,
+        chunk_markdown,
+    )
+except ImportError:
+    # Standalone fallback — keep in sync with autonomy/common.py
+    SKIP_NAMES = frozenset({
+        "README.md", "index.md", "lessons-index.json",
+        "journal-index.json", "journal-index.md",
+    })
+    SKIP_DIRS = frozenset({"legacy", "templates"})
+    MAX_CHUNK_CHARS = 10000
+    MAX_EMBED_CHARS = 12000
+    AUTHORITY_WEIGHTS = {
+        "core": 1.0, "procedural": 0.9, "semantic": 0.8,
+        "episodic": 0.7, "resource": 0.5, "vault": 0.0,
+    }
+
+    def _infer_memory_type(path_str: str) -> str:
+        p = path_str.lower().replace("\\", "/")
+        if "hot-rules" in p or "memo.md" in p:
+            return "core"
+        if "/lessons/" in p and re.search(r"/l-\d+", p):
+            return "procedural"
+        if "/journal/" in p or "active-context" in p:
+            return "episodic"
+        if "/digests/" in p:
+            return "semantic"
+        if "/vault/" in p:
+            return "vault"
+        if "/adr/" in p:
+            return "semantic"
+        return "semantic"
+
+    def _infer_time_scope(memory_type: str) -> str:
+        if memory_type == "episodic":
+            return "recency-sensitive"
+        if memory_type in ("core", "procedural"):
+            return "atemporal"
+        return "time-bound"
+
+    def chunk_markdown(content: str, file_path):
+        """Fallback chunk_markdown — see autonomy/common.py for canonical version."""
+        chunks = []
+        path_str = str(file_path).replace("\\", "/")
+        if "journal/" in path_str.lower():
+            parts = re.split(r"^(##\s+\d{4}-\d{2}-\d{2})", content, flags=re.MULTILINE)
+            preamble = parts[0].strip()
+            if preamble:
+                chunks.append((preamble[:MAX_CHUNK_CHARS], f"@{path_str}"))
+            i = 1
+            while i < len(parts) - 1:
+                heading = parts[i].strip()
+                body = parts[i + 1].strip()
+                date_val = heading.replace("##", "").strip()
+                chunk_text = f"{heading}\n{body}".strip()
+                if chunk_text:
+                    chunks.append((chunk_text[:MAX_CHUNK_CHARS], f"@{path_str}#{date_val}"))
+                i += 2
+            if chunks:
+                return chunks
+        if file_path.parent.name == "lessons" and file_path.name.startswith("L-"):
+            text = content.strip()
+            if text:
+                m = re.match(r"(L-\d{3})", file_path.name)
+                ref = f"@{path_str}#{m.group(1)}" if m else f"@{path_str}"
+                chunks.append((text[:MAX_CHUNK_CHARS], ref))
+            return chunks
+        parts = re.split(r"^(#{1,4}\s+.+)$", content, flags=re.MULTILINE)
+        preamble = parts[0].strip()
+        if preamble:
+            chunks.append((preamble[:MAX_CHUNK_CHARS], f"@{path_str}"))
+        i = 1
+        while i < len(parts) - 1:
+            heading_line = parts[i].strip()
+            body = parts[i + 1].strip()
+            heading_text = re.sub(r"^#{1,4}\s+", "", heading_line)
+            full = f"{heading_line}\n{body}".strip() if body else heading_line
+            if full.strip():
+                chunks.append((full[:MAX_CHUNK_CHARS], f"@{path_str}#{heading_text}"))
+            i += 2
+        if not chunks and content.strip():
+            chunks.append((content.strip()[:MAX_CHUNK_CHARS], f"@{path_str}"))
+        return chunks
+
+
+
+
 def _batch_size() -> int:
     return 16 if _S.PROVIDER == "gemini" else 64
-
-# Memory type authority weights for reranking
-AUTHORITY_WEIGHTS = {
-    "core": 1.0,       # hot-rules.md
-    "procedural": 0.9, # lessons
-    "episodic": 0.7,   # journal/active-context
-    "semantic": 0.8,   # digests/memo
-    "resource": 0.5,   # general docs
-    "vault": 0.0,      # redacted unless authorized
-}
-
-# File → memory_type mapping
-def _infer_memory_type(path_str: str) -> str:
-    p = path_str.lower().replace("\\", "/")
-    if "hot-rules" in p or "memo.md" in p:
-        return "core"
-    if "/lessons/" in p and "/l-" in p:
-        return "procedural"
-    if "/journal/" in p or "active-context" in p:
-        return "episodic"
-    if "/digests/" in p:
-        return "semantic"
-    if "/vault/" in p:
-        return "vault"
-    return "semantic"
-
-
-def _infer_time_scope(memory_type: str) -> str:
-    if memory_type in ("episodic",):
-        return "recency-sensitive"
-    if memory_type in ("core", "procedural"):
-        return "atemporal"
-    return "time-bound"
 
 
 mcp = FastMCP("MnemoVector")
@@ -236,13 +297,14 @@ class _RateLimiter:
 
     def acquire(self) -> None:
         import time as _t
-        now = _t.time()
+        now = _t.monotonic()
         self._timestamps = [t for t in self._timestamps if now - t < self._window]
         if len(self._timestamps) >= self._max:
             sleep_for = self._window - (now - self._timestamps[0]) + 0.1
             if sleep_for > 0:
                 _t.sleep(sleep_for)
-        self._timestamps.append(now if not self._timestamps or now > self._timestamps[-1] else self._timestamps[-1])
+                now = _t.monotonic()
+        self._timestamps.append(now)
 
 
 _RATE_LIMITER = _RateLimiter(max_calls=60, window_s=60.0)
@@ -464,51 +526,7 @@ def _upsert_memory_unit(db: sqlite3.Connection, ref_path: str, content_hash: str
     return unit_id
 
 
-def chunk_markdown(content: str, file_path: Path) -> list[tuple[str, str]]:
-    chunks: list[tuple[str, str]] = []
-    path_str = str(file_path).replace("\\", "/")
-
-    if "journal/" in path_str.lower():
-        parts = re.split(r"^(##\s+\d{4}-\d{2}-\d{2})", content, flags=re.MULTILINE)
-        preamble = parts[0].strip()
-        if preamble:
-            chunks.append((preamble, f"@{path_str}"))
-        i = 1
-        while i < len(parts) - 1:
-            heading = parts[i].strip()
-            body = parts[i + 1].strip()
-            date = heading.replace("##", "").strip()
-            chunks.append((f"{heading}\n{body}".strip(), f"@{path_str}# {date}"))
-            i += 2
-        if chunks:
-            return chunks
-
-    if file_path.parent.name == "lessons" and file_path.name.startswith("L-"):
-        text = content.strip()
-        if text:
-            m = re.match(r"(L-\d{3})", file_path.name)
-            ref = f"@{path_str}# {m.group(1)}" if m else f"@{path_str}"
-            chunks.append((text, ref))
-        return chunks
-
-    parts = re.split(r"^(#{1,4}\s+.+)$", content, flags=re.MULTILINE)
-    preamble = parts[0].strip()
-    if preamble:
-        chunks.append((preamble, f"@{path_str}"))
-
-    i = 1
-    while i < len(parts) - 1:
-        heading_line = parts[i].strip()
-        body = parts[i + 1].strip()
-        heading_text = re.sub(r"^#{1,4}\s+", "", heading_line)
-        full = f"{heading_line}\n{body}".strip() if body else heading_line
-        if full.strip():
-            chunks.append((full, f"@{path_str}# {heading_text}"))
-        i += 2
-
-    if not chunks and content.strip():
-        chunks.append((content.strip(), f"@{path_str}"))
-    return chunks
+# chunk_markdown is now imported from autonomy.common (or fallback above)
 
 
 @mcp.tool()

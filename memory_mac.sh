@@ -2498,7 +2498,7 @@ if [ "$ENABLE_VECTOR" = "1" ] && [ "$DRY_RUN" != "1" ]; then
   mkdir -p "$_autonomy_dest"
   if [ -d "$_autonomy_tpl" ]; then
     _autonomy_missing=0
-    for _f in __init__.py schema.py runner.py ingest_pipeline.py lifecycle_engine.py entity_resolver.py retrieval_router.py reranker.py context_safety.py vault_policy.py policies.yaml; do
+    for _f in __init__.py common.py schema.py runner.py ingest_pipeline.py lifecycle_engine.py entity_resolver.py retrieval_router.py reranker.py context_safety.py vault_policy.py policies.yaml; do
       if [ ! -f "$_autonomy_dest/$_f" ]; then
         _autonomy_missing=1
         break

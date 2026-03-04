@@ -32,7 +32,10 @@ def _resolve_memory_root() -> Path:
     return cwd / ".mnemo" / "memory"
 
 
-DEFAULT_POLICY_PATH = _resolve_memory_root() / ".autonomy" / "policies.yaml"
+def _default_policy_path() -> Path:
+    """Lazy resolution — avoids import-time I/O."""
+    return _resolve_memory_root() / ".autonomy" / "policies.yaml"
+
 _POLICY_CACHE: dict | None = None
 
 # Built-in secret patterns (supplemented by policies.yaml)
@@ -45,7 +48,7 @@ _BUILTIN_SECRET_PATTERNS = [
 REDACTION_PLACEHOLDER = "[REDACTED]"
 
 
-def load_policy(policy_path: Path = DEFAULT_POLICY_PATH) -> dict:
+def load_policy(policy_path: Path | None = None) -> dict:
     """Load vault policy from YAML file, with fallback to defaults."""
     global _POLICY_CACHE
     if _POLICY_CACHE is not None:
@@ -60,6 +63,9 @@ def load_policy(policy_path: Path = DEFAULT_POLICY_PATH) -> dict:
         "allow_internal_for_roles": ["agent", "autonomous"],
         "max_sensitivity_in_context": "internal",
     }
+
+    if policy_path is None:
+        policy_path = _default_policy_path()
 
     if not policy_path.exists():
         _POLICY_CACHE = defaults
@@ -139,7 +145,7 @@ class VaultPolicy:
     def __init__(
         self,
         db: Optional[sqlite3.Connection] = None,
-        policy_path: Path = DEFAULT_POLICY_PATH,
+        policy_path: Path | None = None,
     ):
         self.db = db or get_db()
         self.policy = load_policy(policy_path)

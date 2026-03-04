@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from autonomy.schema import get_db
+from autonomy.common import AUTHORITY_WEIGHTS, infer_memory_type as _infer_memory_type, infer_time_scope as _infer_time_scope
 
 # Score fusion weights (must sum to 1.0)
 W_SEMANTIC   = 0.55
@@ -141,8 +142,6 @@ class ScoreFusionReranker:
         raw_results: each dict must have at least ref_path, content, distance.
         Returns top_k RankedResult sorted by final_score desc.
         """
-        from autonomy.common import AUTHORITY_WEIGHTS, infer_memory_type as _infer_memory_type, infer_time_scope as _infer_time_scope
-
         ranked: list[RankedResult] = []
 
         for r in raw_results:

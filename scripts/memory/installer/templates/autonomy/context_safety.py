@@ -55,13 +55,16 @@ def _jaccard(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-def _detect_duplicates(results: list[RankedResult]) -> list[tuple[int, int]]:
+def _detect_duplicates(results: list[RankedResult], max_pairs: int = 50) -> list[tuple[int, int]]:
     """Return (i, j) pairs where results[i] and results[j] are near-duplicates."""
     pairs: list[tuple[int, int]] = []
-    for i in range(len(results)):
-        for j in range(i + 1, len(results)):
+    n = len(results)
+    for i in range(n):
+        for j in range(i + 1, n):
             if _jaccard(results[i].content, results[j].content) >= DUPLICATE_JACCARD_THRESHOLD:
                 pairs.append((i, j))
+                if len(pairs) >= max_pairs:
+                    return pairs
     return pairs
 
 
@@ -137,8 +140,8 @@ class ContextSafetyGuard:
                 f"Contradiction detected ({reason}): {filtered[i].ref_path} vs {filtered[j].ref_path}"
             )
             # Reduce score of both to signal uncertainty
-            object.__setattr__(filtered[i], "final_score", filtered[i].final_score * 0.9)
-            object.__setattr__(filtered[j], "final_score", filtered[j].final_score * 0.9)
+            filtered[i].final_score = filtered[i].final_score * 0.9
+            filtered[j].final_score = filtered[j].final_score * 0.9
 
         # 5. Token budget enforcement
         budget_used = 0
