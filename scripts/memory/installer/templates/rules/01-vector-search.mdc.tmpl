@@ -1,0 +1,27 @@
+---
+description: Mnemo Vector / Semantic Search Tools v{{VERSION}}
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Vector Search Tools (MnemoVector MCP)
+
+When semantic search is enabled, these MCP tools are available:
+
+## Tools
+- `vector_search` — semantic search across all indexed memory
+- `vector_sync` — re-index changed files into the vector store
+- `vector_forget` — remove a file from the vector index
+- `vector_health` — check index health and stats
+- `memory_status` — overview of memory system state
+
+## Usage
+1. Run `vector_health` to verify the vector store is healthy
+2. Run `vector_sync` to build/update the index
+3. Use `vector_search` with natural language queries
+
+## Fallback
+If vector search is unavailable, keep using:
+- `scripts/memory/query-memory.sh --query "..."`
+- `scripts/memory/query-memory.sh --query "..." --use-sqlite`

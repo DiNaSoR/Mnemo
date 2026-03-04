@@ -1,0 +1,27 @@
+---
+description: Mnemo Memory System v{{VERSION}} - Authority + Atomic Retrieval + Token Safety
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Memory System (MANDATORY)
+
+## Authority Order (highest to lowest)
+1) Lessons override EVERYTHING (including active-context)
+2) active-context.md overrides memo/journal (but NOT lessons)
+3) memo.md is long-term project truth
+4) Journal is history
+
+## Token-Safe Retrieval
+
+ALWAYS READ (in order):
+1. .cursor/memory/hot-rules.md
+2. .cursor/memory/active-context.md
+3. .cursor/memory/memo.md
+
+SEARCH FIRST, THEN FETCH:
+4. .cursor/memory/lessons/index.md -> find relevant lesson ID
+5. .cursor/memory/lessons/L-XXX-title.md -> load ONLY the specific file
+6. .cursor/memory/digests/YYYY-MM.digest.md -> before raw journal
+7. .cursor/memory/journal/YYYY-MM.md -> only for archaeology

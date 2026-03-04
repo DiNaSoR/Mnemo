@@ -1,0 +1,32 @@
+#!/bin/sh
+# Mnemo Vector Hook Wrapper
+set -e
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT" || exit 0
+
+if [ -f ".githooks/post-commit.before-mnemo-vector" ]; then
+  sh ".githooks/post-commit.before-mnemo-vector" || true
+fi
+
+{{API_KEY_GUARD}}
+
+LOCKDIR="$ROOT/.mnemo/memory/.sync.lock"
+if [ ! -d "$ROOT/.mnemo/memory" ] && [ -d "$ROOT/.cursor/memory" ]; then
+  LOCKDIR="$ROOT/.cursor/memory/.sync.lock"
+fi
+if [ -d "$LOCKDIR" ]; then
+  NOW=$(date +%s 2>/dev/null || echo 0)
+  MTIME=$(stat -f %m "$LOCKDIR" 2>/dev/null || stat -c %Y "$LOCKDIR" 2>/dev/null || echo 0)
+  AGE=$((NOW - MTIME))
+  if [ "$AGE" -gt 600 ] 2>/dev/null; then
+    rmdir "$LOCKDIR" 2>/dev/null || true
+  fi
+fi
+
+if mkdir "$LOCKDIR" 2>/dev/null; then
+  trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT INT TERM
+  python3 -c "import sys; sys.path.insert(0, 'scripts/memory'); from mnemo_vector import vector_sync; print('[MnemoVector]', vector_sync())" 2>&1 | tail -1 || true
+fi
+
+exit 0

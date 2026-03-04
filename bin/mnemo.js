@@ -510,26 +510,44 @@ async function main() {
 
   let result;
 
-  if (IS_WIN) {
-    const installer = path.join(PKG_ROOT, "memory.ps1");
-    if (!fs.existsSync(installer)) {
-      process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
-      process.exit(1);
+  // Prefer the unified Node.js installer
+  try {
+    const { install } = require("./installer");
+    const exitCode = install({
+      repoRoot:       flags.repoRoot || CWD,
+      projectName:    flags.projectName,
+      enableVector:   flags.enableVector,
+      vectorProvider: flags.vectorProvider,
+      force:          flags.force,
+      dryRun:         flags.dryRun,
+    }, PKG_ROOT);
+    result = { status: exitCode };
+  } catch (e) {
+    // Fallback to platform-specific scripts if Node.js installer fails
+    process.stderr.write(`${WARN} Node.js installer error: ${e.message}\n`);
+    process.stderr.write(`${ARROW} Falling back to platform installer…\n\n`);
+
+    if (IS_WIN) {
+      const installer = path.join(PKG_ROOT, "memory.ps1");
+      if (!fs.existsSync(installer)) {
+        process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
+        process.exit(1);
+      }
+      result = spawnSync(
+        "powershell",
+        ["-ExecutionPolicy", "Bypass", "-File", installer, ...buildWindowsArgs(flags)],
+        { stdio: "inherit" },
+      );
+    } else {
+      const installer = path.join(PKG_ROOT, "memory_mac.sh");
+      if (!fs.existsSync(installer)) {
+        process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
+        process.exit(1);
+      }
+      result = spawnSync("sh", [installer, ...buildPosixArgs(flags)], {
+        stdio: "inherit",
+      });
     }
-    result = spawnSync(
-      "powershell",
-      ["-ExecutionPolicy", "Bypass", "-File", installer, ...buildWindowsArgs(flags)],
-      { stdio: "inherit" },
-    );
-  } else {
-    const installer = path.join(PKG_ROOT, "memory_mac.sh");
-    if (!fs.existsSync(installer)) {
-      process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
-      process.exit(1);
-    }
-    result = spawnSync("sh", [installer, ...buildPosixArgs(flags)], {
-      stdio: "inherit",
-    });
   }
 
   if (result.status === 0) {
