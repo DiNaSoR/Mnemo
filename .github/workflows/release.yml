@@ -60,12 +60,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Run regression tests
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+      - name: Run Node.js installer test
         shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
-      - name: Run modularization guard tests
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          node bin/mnemo.js --yes --repo-root $dest --project-name CITest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "$dest/.mnemo/memory/hot-rules.md")) {
+            Write-Error "Core files missing after install"
+            exit 1
+          }
 
   test-posix:
     name: Test POSIX (${{ matrix.os }})
@@ -77,6 +85,9 @@ jobs:
         os: [macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
       - name: Run regression tests
         run: sh ./tests/test-installer.sh
 
@@ -128,7 +139,7 @@ jobs:
 
       - name: Verify release artifacts exist
         run: |
-          for f in memory.ps1 memory_mac.sh VERSION CHANGELOG.md README.md LICENSE; do
+          for f in VERSION CHANGELOG.md README.md LICENSE bin/mnemo.js bin/installer/index.js; do
             if [ ! -f "$f" ]; then
               echo "ERROR: required release artifact missing: $f"
               exit 1
@@ -142,7 +153,6 @@ jobs:
       - name: Extract changelog section for this release
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
-          # Extract lines between ## [VERSION] and the next ## [ header.
           awk -v ver="$VERSION" '
             /^## \[/ {
               if (found) exit
@@ -159,64 +169,10 @@ jobs:
           echo "Release notes:"
           cat release_notes.md
 
-      - name: Build platform bundles
-        run: |
-          VERSION="${{ needs.preflight.outputs.version }}"
-          OUT_DIR="release-bundles"
-          WIN_DIR="$OUT_DIR/mnemo-windows-v${VERSION}"
-          MAC_DIR="$OUT_DIR/mnemo-macos-linux-v${VERSION}"
-
-          rm -rf "$OUT_DIR"
-          mkdir -p "$WIN_DIR" "$MAC_DIR"
-          mkdir -p "$WIN_DIR/scripts/memory/installer" "$MAC_DIR/scripts/memory/installer"
-
-          # Include full installer modules/templates required by both entrypoint scripts.
-          cp -R scripts/memory/installer/. "$WIN_DIR/scripts/memory/installer/"
-          cp -R scripts/memory/installer/. "$MAC_DIR/scripts/memory/installer/"
-
-          # Platform-specific entrypoints + shared docs.
-          cp memory.ps1 VERSION README.md CHANGELOG.md LICENSE "$WIN_DIR/"
-          cp memory_mac.sh VERSION README.md CHANGELOG.md LICENSE "$MAC_DIR/"
-
-          # One-click launcher for Windows users (double-click install.cmd).
-          cat > "$WIN_DIR/install.cmd" <<'EOF'
-          @echo off
-          setlocal
-          set SCRIPT_DIR=%~dp0
-          powershell -ExecutionPolicy Bypass -File "%SCRIPT_DIR%memory.ps1" %*
-          if ERRORLEVEL 1 (
-            echo.
-            echo Mnemo installer failed with exit code %ERRORLEVEL%.
-            pause
-            exit /b %ERRORLEVEL%
-          )
-          echo.
-          echo Mnemo installer completed.
-          pause
-          EOF
-
-          # One-click launcher for macOS users (double-click install.command).
-          cat > "$MAC_DIR/install.command" <<'EOF'
-          #!/bin/sh
-          set -e
-          SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-          sh "$SCRIPT_DIR/memory_mac.sh" "$@"
-          EOF
-          chmod +x "$MAC_DIR/install.command" "$MAC_DIR/memory_mac.sh"
-
-          # Create zip bundles to publish in the GitHub release.
-          (cd "$OUT_DIR" && zip -rq "../mnemo-windows-v${VERSION}.zip" "mnemo-windows-v${VERSION}")
-          (cd "$OUT_DIR" && zip -rq "../mnemo-macos-linux-v${VERSION}.zip" "mnemo-macos-linux-v${VERSION}")
-
       - name: Generate release checksums
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
-          sha256sum \
-            mnemo-windows-v${VERSION}.zip \
-            mnemo-macos-linux-v${VERSION}.zip \
-            memory.ps1 \
-            memory_mac.sh \
-            VERSION > checksums.txt
+          sha256sum VERSION > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
@@ -225,8 +181,6 @@ jobs:
           name: "Mnemo v${{ needs.preflight.outputs.version }}"
           body_path: release_notes.md
           files: |
-            mnemo-windows-v${{ needs.preflight.outputs.version }}.zip
-            mnemo-macos-linux-v${{ needs.preflight.outputs.version }}.zip
             checksums.txt
           draft: false
           prerelease: false
@@ -257,7 +211,7 @@ jobs:
 
       - name: Verify npm package files exist
         run: |
-          for f in package.json bin/mnemo.js memory.ps1 memory_mac.sh VERSION; do
+          for f in package.json bin/mnemo.js bin/installer/index.js VERSION; do
             if [ ! -f "$f" ]; then
               echo "ERROR: required npm package file missing: $f"
               exit 1
