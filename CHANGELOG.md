@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-03-05
+
+### Added
+- Unified cross-platform Node.js installer (`bin/installer/`) replacing shell scripts.
+- 4 core modules: `paths.js`, `writer.js`, `template.js`, `bridge.js`.
+- 8 feature modules: scaffold, helperScripts, vectorSetup, mcpConfig, gitHooks, gitignore, bridges, legacyMigration.
+- 19 shared content templates extracted from heredocs into `templates/`.
+- New `mnemo-release` Cursor skill for guided npm publishing workflow.
+- Architecture section in README documenting the modular installer structure.
+
+### Changed
+- `mnemo.js` now calls the Node.js installer directly (no shell subprocess).
+- README rewritten: all install instructions use `npx @dinasor/mnemo-cli@latest`.
+- CI and release workflows updated to use Node.js installer.
+- `test-installer.sh` rewritten to test via `node bin/mnemo.js --yes`.
+
+### Removed
+- `memory.ps1` — replaced by Node.js installer.
+- `memory_mac.sh` — replaced by Node.js installer.
+- `scripts/memory/installer/bootstrap.ps1` and all PS1 core/feature modules (11 files).
+
+### Fixed
+- `mnemo-codebase-optimizer` skill: aligned lesson template with installed format, added tag vocabulary reference, added step 8 to clear active-context, fixed cross-platform script references.
+
 ## [0.0.7] - 2026-03-04
 
 ### Added
