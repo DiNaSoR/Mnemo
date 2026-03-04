@@ -2,7 +2,7 @@
 "use strict";
 
 /**
- * Mnemo CLI — interactive wizard + cross-platform installer runner.
+ * Mnemo CLI — interactive wizard + unified Node.js installer.
  *
  * When stdin is a TTY (and --yes is not passed) the wizard:
  *   1. Asks whether to enable vector/semantic search mode.
@@ -10,7 +10,7 @@
  *   3. Checks for an existing API key (env / .env file), or lets the user
  *      enter one now (saved to project .env) or skip.
  *   4. Checks all runtime dependencies and reports their status.
- *   5. Runs memory.ps1 (Windows) or memory_mac.sh (POSIX).
+ *   5. Runs the unified Node.js installer (bin/installer/index.js).
  *
  * When --yes / -y is passed, or stdin is not a TTY, the wizard is skipped
  * and the installer runs immediately using whatever flags were supplied.
@@ -381,28 +381,7 @@ function printHelp(version) {
   process.stdout.write(`  npx @dinasor/mnemo-cli@latest --dry-run\n\n`);
 }
 
-// ─── Installer arg builders ───────────────────────────────────────────────────
-function buildWindowsArgs(flags) {
-  const args = [];
-  if (flags.dryRun)         args.push("-DryRun");
-  if (flags.force)          args.push("-Force");
-  if (flags.enableVector)   args.push("-EnableVector");
-  if (flags.vectorProvider) args.push("-VectorProvider", flags.vectorProvider);
-  if (flags.projectName)    args.push("-ProjectName", flags.projectName);
-  args.push("-RepoRoot", flags.repoRoot || CWD);
-  return args;
-}
 
-function buildPosixArgs(flags) {
-  const args = [];
-  if (flags.dryRun)         args.push("--dry-run");
-  if (flags.force)          args.push("--force");
-  if (flags.enableVector)   args.push("--enable-vector");
-  if (flags.vectorProvider) args.push("--vector-provider", flags.vectorProvider);
-  if (flags.projectName)    args.push("--project-name", flags.projectName);
-  args.push("--repo-root", flags.repoRoot || CWD);
-  return args;
-}
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
@@ -510,45 +489,17 @@ async function main() {
 
   let result;
 
-  // Prefer the unified Node.js installer
-  try {
-    const { install } = require("./installer");
-    const exitCode = install({
-      repoRoot:       flags.repoRoot || CWD,
-      projectName:    flags.projectName,
-      enableVector:   flags.enableVector,
-      vectorProvider: flags.vectorProvider,
-      force:          flags.force,
-      dryRun:         flags.dryRun,
-    }, PKG_ROOT);
-    result = { status: exitCode };
-  } catch (e) {
-    // Fallback to platform-specific scripts if Node.js installer fails
-    process.stderr.write(`${WARN} Node.js installer error: ${e.message}\n`);
-    process.stderr.write(`${ARROW} Falling back to platform installer…\n\n`);
-
-    if (IS_WIN) {
-      const installer = path.join(PKG_ROOT, "memory.ps1");
-      if (!fs.existsSync(installer)) {
-        process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
-        process.exit(1);
-      }
-      result = spawnSync(
-        "powershell",
-        ["-ExecutionPolicy", "Bypass", "-File", installer, ...buildWindowsArgs(flags)],
-        { stdio: "inherit" },
-      );
-    } else {
-      const installer = path.join(PKG_ROOT, "memory_mac.sh");
-      if (!fs.existsSync(installer)) {
-        process.stderr.write(`${CROSS} Installer not found: ${installer}\n`);
-        process.exit(1);
-      }
-      result = spawnSync("sh", [installer, ...buildPosixArgs(flags)], {
-        stdio: "inherit",
-      });
-    }
-  }
+  // Run the unified Node.js installer
+  const { install } = require("./installer");
+  const exitCode = install({
+    repoRoot:       flags.repoRoot || CWD,
+    projectName:    flags.projectName,
+    enableVector:   flags.enableVector,
+    vectorProvider: flags.vectorProvider,
+    force:          flags.force,
+    dryRun:         flags.dryRun,
+  }, PKG_ROOT);
+  result = { status: exitCode };
 
   if (result.status === 0) {
     successBox(vectorMode);

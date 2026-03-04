@@ -21,18 +21,19 @@ Mnemo scaffolds a structured memory layer under `.mnemo/` (canonical) and keeps 
 - ⚙️ **Autonomous mode** with vector sync and lifecycle tracking
 - 🔌 **MCP tools** for semantic recall in Cursor when vector mode is enabled
 
-## 🚀 Install Mnemo (once per project)
+## 🚀 Install
 
-Run from the **target project root**.
-
-### Any OS (npx, recommended)
+Run from the **target project root**. Requires **Node.js 18+**.
 
 ```sh
-# Interactive wizard — guides you through every option (recommended)
+# Install globally (once)
+npm i -g @dinasor/mnemo-cli
+
+# Interactive wizard (recommended)
 npx @dinasor/mnemo-cli@latest
 ```
 
-The wizard will ask you:
+The wizard walks you through:
 
 1. **Vector mode** — enable semantic / embedding-based memory recall?
 2. **Provider** — Gemini (`GEMINI_API_KEY`) or OpenAI (`OPENAI_API_KEY`)?
@@ -40,50 +41,30 @@ The wizard will ask you:
 
 It then runs a live dependency check (Node · Git · Python · pip · packages) and launches the installer.
 
+### Non-interactive (CI / scripting)
+
 ```sh
-# Non-interactive (CI / scripting) — skip wizard, use flags directly
+# Standard install (skip wizard)
 npx @dinasor/mnemo-cli@latest --yes
+
+# With vector mode + Gemini embeddings
 npx @dinasor/mnemo-cli@latest --enable-vector --vector-provider gemini --yes
+
+# Preview without changes
 npx @dinasor/mnemo-cli@latest --dry-run
+
+# Force overwrite existing files
 npx @dinasor/mnemo-cli@latest --force
-```
-
-### Windows (PowerShell)
-
-```powershell
-# Standard install
-powershell -ExecutionPolicy Bypass -File .\memory.ps1
-
-# With vector mode (OpenAI default)
-powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector
-
-# With vector mode (Gemini embeddings)
-powershell -ExecutionPolicy Bypass -File .\memory.ps1 -EnableVector -VectorProvider gemini
-```
-
-### macOS / Linux (POSIX shell)
-
-```sh
-# Standard install
-sh ./memory_mac.sh
-
-# With vector mode (OpenAI default)
-sh ./memory_mac.sh --enable-vector
-
-# With vector mode (Gemini embeddings)
-sh ./memory_mac.sh --enable-vector --vector-provider gemini
 ```
 
 ### Post-install sanity check
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\memory\rebuild-memory-index.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\memory\lint-memory.ps1
-```
+```sh
+# Verify memory system
+scripts/memory/rebuild-memory-index.ps1   # Windows
+scripts/memory/rebuild-memory-index.sh    # macOS/Linux
 
-If vector mode is enabled, restart your IDE once and run:
-
-```text
+# If vector mode is enabled, restart your IDE and run:
 vector_health
 vector_sync
 ```
@@ -112,7 +93,7 @@ After installing Mnemo in a project that already has code, use the bundled
    and write optimized `memo.md`, `hot-rules.md`, `active-context.md`, lessons,
    and a journal summary — then validate retrieval quality.
 
-The skill is installed automatically by `memory.ps1` / `memory_mac.sh` and lives at:
+The skill is installed automatically and lives at:
 
 ```text
 .cursor/skills/mnemo-codebase-optimizer/
@@ -136,39 +117,38 @@ Use the section that matches your IDE. Each project should run Mnemo install onc
 
 ### 1) Cursor IDE 🟦
 
-1. Run installer in your project (`memory.ps1` or `memory_mac.sh`).
-2. For semantic tools, enable vector mode during install.
-3. Confirm `.mnemo/mcp/cursor.mcp.json` exists (and `.cursor/mcp.json` bridge is present).
-4. Restart Cursor.
-5. Run `vector_health` then `vector_sync`.
+1. Run `npx @dinasor/mnemo-cli@latest --enable-vector` in your project root.
+2. Confirm `.mnemo/mcp/cursor.mcp.json` exists (and `.cursor/mcp.json` bridge is present).
+3. Restart Cursor.
+4. Run `vector_health` then `vector_sync`.
 
 You should see MCP tools:
 `vector_search`, `vector_sync`, `vector_forget`, `vector_health`, `memory_status`.
 
 ### 2) Claude Code 🤝
 
-1. Run Mnemo install in your project root.
+1. Run `npx @dinasor/mnemo-cli@latest` in your project root.
 2. Confirm `.mnemo/memory/` exists (and `.cursor/memory/` bridge is present).
 3. Start Claude Code from the project root.
 4. Follow retrieval order from `.mnemo/memory/index.md`.
 
 ### 3) Gemini Antigravity 🔷
 
-1. Run Mnemo install in your project root.
+1. Run `npx @dinasor/mnemo-cli@latest` in your project root.
 2. Confirm `.agent/rules/00-memory-system.md` exists.
 3. Ensure your Antigravity setup loads `.agent/rules/`.
 4. (Optional) Enable vector mode for semantic memory workflows.
 
 ### 4) OpenAI Codex 🧪
 
-1. Run Mnemo install in your project root.
+1. Run `npx @dinasor/mnemo-cli@latest` in your project root.
 2. Confirm `.mnemo/memory/` exists (and `.cursor/memory/` bridge is present).
 3. Launch Codex from the same project root.
 4. Follow retrieval order from `.mnemo/memory/index.md`.
 
 ### 5) Windsurf / Other IDEs 🌊
 
-1. Run Mnemo install in your project root.
+1. Run `npx @dinasor/mnemo-cli@latest` in your project root.
 2. Point your IDE's memory/context config to `.mnemo/memory/` (or `.cursor/memory/` bridge).
 3. Reuse the same retrieval order:
    `hot-rules.md` → `active-context.md` → `memo.md` → indexed lessons/digests.
@@ -189,7 +169,7 @@ You should see MCP tools:
 
 ## 🤖 Autonomous mode (no human in the loop)
 
-When installed with vector mode (`-EnableVector` / `--enable-vector`), Mnemo can run autonomously:
+When installed with vector mode (`--enable-vector`), Mnemo can run autonomously:
 
 | Component | Purpose |
 |---|---|
@@ -301,7 +281,6 @@ python3 scripts/memory/mnemo_vector.py health
 ## 📋 Requirements
 
 - **Node.js 18+** (for `npx @dinasor/mnemo-cli@latest`)
-- **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7 (`pwsh`)
 - **Git**
 - **Optional**: Python 3 for SQLite FTS index
 - **Optional (vector mode)**:
@@ -311,6 +290,31 @@ python3 scripts/memory/mnemo_vector.py health
 
 > The interactive wizard (`npx @dinasor/mnemo-cli@latest`) checks all of these
 > before running the installer and reports which packages are already installed.
+
+## 🏗️ Architecture
+
+The installer is a modular Node.js system under `bin/installer/`:
+
+```text
+bin/
+  mnemo.js                    ← CLI wizard + entry point
+  installer/
+    index.js                  ← Orchestrator
+    core/
+      paths.js                ← Path context builder
+      writer.js               ← Atomic file writer
+      template.js             ← {{VAR}} template engine
+      bridge.js               ← Symlink/junction/mirror bridges
+    features/
+      scaffold.js             ← Memory content templates
+      helperScripts.js        ← Script + autonomy copying
+      vectorSetup.js          ← Python deps + vector rules
+      mcpConfig.js            ← MCP JSON config
+      gitHooks.js             ← Pre/post commit hooks
+      gitignore.js            ← Managed .gitignore block
+      bridges.js              ← Bridge orchestration
+      legacyMigration.js      ← .cursor→.mnemo migration
+```
 
 ## 🤝 Contributing
 

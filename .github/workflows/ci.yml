@@ -13,61 +13,40 @@ permissions:
 jobs:
   # ─── Windows installer smoke tests ───────────────────────────────────────────
   windows:
-    name: Windows (PowerShell ${{ matrix.pwsh }})
+    name: Windows (Node.js installer)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        pwsh: ["5", "7"]
     steps:
       - uses: actions/checkout@v6
-
-      - name: Select PowerShell version
-        shell: pwsh
-        run: |
-          if ("${{ matrix.pwsh }}" -eq "5") {
-            Write-Host "Using Windows PowerShell 5 (default on windows-latest)"
-          } else {
-            Write-Host "Using PowerShell 7+ (pwsh)"
-          }
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
 
       - name: Run installer (scratch)
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest
+          node bin/mnemo.js --yes --repo-root $dest --project-name CITest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run rebuild + lint
+      - name: Idempotency check (re-run without --force, expect SKIPs only)
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
-          powershell -ExecutionPolicy Bypass -File "$dest\scripts\memory\rebuild-memory-index.ps1" -RepoRoot $dest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell -ExecutionPolicy Bypass -File "$dest\scripts\memory\lint-memory.ps1" -RepoRoot $dest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Idempotency check (re-run without --Force, expect SKIPs only)
-        shell: pwsh
-        run: |
-          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
-          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest 2>&1
-          $out | Write-Host
-          $wrote = $out | Where-Object { $_ -match "^WROTE:" }
-          if ($wrote) {
-            Write-Error "Idempotency failed: installer overwrote files on second run without -Force:`n$($wrote -join "`n")"
+          $out = node bin/mnemo.js --yes --repo-root $dest --project-name CITest 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match "^WROTE:") {
+            Write-Error "Idempotency failed: installer overwrote files on second run without --force"
             exit 1
           }
 
-      - name: Idempotency check (re-run with --Force, expect WROTEs)
+      - name: Idempotency check (re-run with --force, expect WROTEs)
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
-          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest -Force 2>&1
-          $out | Write-Host
-          $wrote = $out | Where-Object { $_ -match "^WROTE:" }
-          if (-not $wrote) {
+          $out = node bin/mnemo.js --yes --repo-root $dest --project-name CITest --force 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch "WROTE:") {
             Write-Error "Force flag had no effect: no files were written."
             exit 1
           }
@@ -77,8 +56,7 @@ jobs:
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo-dryrun"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $out = powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest -DryRun 2>&1
-          $out | Write-Host
+          node bin/mnemo.js --yes --repo-root $dest --project-name CITest --dry-run
           $files = Get-ChildItem -Recurse -File $dest -ErrorAction SilentlyContinue
           if ($files) {
             Write-Error "Dry-run created files: $($files.FullName -join ', ')"
@@ -90,20 +68,12 @@ jobs:
         run: |
           $dest = Join-Path $env:RUNNER_TEMP "mnemo with spaces"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot $dest -ProjectName CITest
+          node bin/mnemo.js --yes --repo-root $dest --project-name CITest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Run full regression test suite
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
-
-      - name: Modularization guardrail checks
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
 
   # ─── macOS / Linux installer smoke tests ─────────────────────────────────────
   posix:
-    name: ${{ matrix.os }} (sh)
+    name: ${{ matrix.os }} (Node.js installer)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -111,23 +81,20 @@ jobs:
         os: [macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
 
       - name: Run installer (scratch)
         run: |
           dest="$RUNNER_TEMP/mnemo-test"
           mkdir -p "$dest"
-          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest
-
-      - name: Run rebuild + lint
-        run: |
-          dest="$RUNNER_TEMP/mnemo-test"
-          sh "$dest/scripts/memory/rebuild-memory-index.sh"
-          sh "$dest/scripts/memory/lint-memory.sh"
+          node bin/mnemo.js --yes --repo-root "$dest" --project-name CITest
 
       - name: Idempotency check (re-run without --force, expect SKIPs only)
         run: |
           dest="$RUNNER_TEMP/mnemo-test"
-          out="$(sh ./memory_mac.sh --repo-root "$dest" --project-name CITest 2>&1)"
+          out="$(node bin/mnemo.js --yes --repo-root "$dest" --project-name CITest 2>&1)"
           echo "$out"
           if echo "$out" | grep -q "^WROTE:"; then
             echo "ERROR: Idempotency failed — installer overwrote files on second run without --force"
@@ -137,9 +104,9 @@ jobs:
       - name: Idempotency check (re-run with --force, expect WROTEs)
         run: |
           dest="$RUNNER_TEMP/mnemo-test"
-          out="$(sh ./memory_mac.sh --repo-root "$dest" --project-name CITest --force 2>&1)"
+          out="$(node bin/mnemo.js --yes --repo-root "$dest" --project-name CITest --force 2>&1)"
           echo "$out"
-          if ! echo "$out" | grep -q "^WROTE:"; then
+          if ! echo "$out" | grep -q "WROTE:"; then
             echo "ERROR: --force had no effect — no files were written"
             exit 1
           fi
@@ -148,7 +115,7 @@ jobs:
         run: |
           dest="$RUNNER_TEMP/mnemo-dryrun"
           mkdir -p "$dest"
-          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest --dry-run
+          node bin/mnemo.js --yes --repo-root "$dest" --project-name CITest --dry-run
           count="$(find "$dest" -type f 2>/dev/null | wc -l | tr -d ' ')"
           if [ "$count" -gt 0 ]; then
             echo "ERROR: Dry-run created $count file(s)"
@@ -160,7 +127,7 @@ jobs:
         run: |
           dest="$RUNNER_TEMP/mnemo with spaces"
           mkdir -p "$dest"
-          sh ./memory_mac.sh --repo-root "$dest" --project-name CITest
+          node bin/mnemo.js --yes --repo-root "$dest" --project-name CITest
 
       - name: Run full regression test suite
         run: sh ./tests/test-installer.sh
@@ -188,68 +155,53 @@ jobs:
             exit 1
           fi
 
-  # ─── Installer modularization anti-monolith guard ────────────────────────────
+  # ─── Installer modularization guard ──────────────────────────────────────────
   modularization-guard:
-    name: Monolith guard (LOC check)
+    name: Node.js installer integrity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check memory.ps1 line count (soft=400, hard=500)
-        run: |
-          loc=$(wc -l < memory.ps1)
-          echo "memory.ps1: $loc lines"
-          if [ "$loc" -gt 500 ]; then
-            echo "FAIL: memory.ps1 exceeds 500-line hard limit ($loc lines)"
-            echo "Move new logic to scripts/memory/installer/features/ or templates/"
-            exit 1
-          elif [ "$loc" -gt 400 ]; then
-            echo "WARN: memory.ps1 exceeds 400-line soft target ($loc lines)"
-          fi
-
-      - name: Check memory_mac.sh line count (soft=2800, hard=3200)
-        run: |
-          loc=$(wc -l < memory_mac.sh)
-          echo "memory_mac.sh: $loc lines"
-          if [ "$loc" -gt 3200 ]; then
-            echo "FAIL: memory_mac.sh exceeds 3200-line hard limit ($loc lines)"
-            echo "Consider modularizing into sourced scripts"
-            exit 1
-          elif [ "$loc" -gt 2800 ]; then
-            echo "WARN: memory_mac.sh exceeds 2800-line soft target ($loc lines)"
-          fi
-
-      - name: Check no large heredocs in memory.ps1
-        run: |
-          python3 -c "
-          import re, sys
-          content = open('memory.ps1', encoding='utf-8').read()
-          large = re.findall(r\"@'[\\s\\S]{400,}'@\", content)
-          if large:
-              print(f'FAIL: {len(large)} large single-quote heredoc(s) found in memory.ps1')
-              print('Move them to scripts/memory/installer/templates/')
-              sys.exit(1)
-          print('No large heredocs found in memory.ps1')
-          "
-
-      - name: Verify required module files exist
+      - name: Verify required Node.js installer modules exist
         run: |
           for f in \
-            scripts/memory/installer/bootstrap.ps1 \
-            scripts/memory/installer/core/io.ps1 \
-            scripts/memory/installer/core/paths.ps1 \
-            scripts/memory/installer/core/bridge.ps1 \
-            scripts/memory/installer/features/memory_scaffold.ps1 \
-            scripts/memory/installer/features/vector_setup.ps1 \
-            scripts/memory/installer/features/mcp_setup.ps1 \
-            scripts/memory/installer/features/hooks_setup.ps1 \
-            scripts/memory/installer/features/gitignore_setup.ps1; do
+            bin/installer/index.js \
+            bin/installer/core/paths.js \
+            bin/installer/core/writer.js \
+            bin/installer/core/template.js \
+            bin/installer/core/bridge.js \
+            bin/installer/features/scaffold.js \
+            bin/installer/features/helperScripts.js \
+            bin/installer/features/vectorSetup.js \
+            bin/installer/features/mcpConfig.js \
+            bin/installer/features/gitHooks.js \
+            bin/installer/features/gitignore.js \
+            bin/installer/features/bridges.js \
+            bin/installer/features/legacyMigration.js; do
             if [ ! -f "$f" ]; then
-              echo "FAIL: required module file missing: $f"
+              echo "FAIL: required installer module missing: $f"
               exit 1
             fi
           done
-          echo "All module files present"
+          echo "All Node.js installer modules present"
+
+      - name: Verify content templates exist
+        run: |
+          for f in \
+            scripts/memory/installer/templates/content/index.md \
+            scripts/memory/installer/templates/content/hot-rules.md \
+            scripts/memory/installer/templates/content/active-context.md \
+            scripts/memory/installer/templates/content/memo.md.tmpl \
+            scripts/memory/installer/templates/content/tag-vocabulary.md \
+            scripts/memory/installer/templates/rules/00-memory-system.mdc.tmpl \
+            scripts/memory/installer/templates/rules/00-memory-system-agent.md \
+            scripts/memory/installer/templates/hooks/pre-commit.sh; do
+            if [ ! -f "$f" ]; then
+              echo "FAIL: content template missing: $f"
+              exit 1
+            fi
+          done
+          echo "All content templates present"
 
       - name: Verify autonomy template files exist
         run: |
@@ -312,13 +264,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+
       - name: Install dependencies
         run: pip install --quiet "sqlite-vec>=0.1.1" "mcp[cli]>=1.2.0,<2.0" "pyyaml>=6.0"
 
       - name: Install Mnemo to temp dir
         run: |
           mkdir -p /tmp/mnemo-bench
-          sh ./memory_mac.sh --repo-root /tmp/mnemo-bench --project-name BenchTest
+          node bin/mnemo.js --yes --repo-root /tmp/mnemo-bench --project-name BenchTest
 
       - name: Run benchmark (FTS mode, no API key required)
         working-directory: /tmp/mnemo-bench

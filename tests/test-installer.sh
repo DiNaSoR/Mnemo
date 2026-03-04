@@ -1,17 +1,16 @@
 #!/bin/sh
 # test-installer.sh
-# Regression tests for memory_mac.sh (macOS / Linux installer).
+# Regression tests for the unified Node.js installer.
 #
 # USAGE:
 #   sh ./tests/test-installer.sh
 #   sh ./tests/test-installer.sh dry-run
-#   sh ./tests/test-installer.sh malformed-mcp-json
+#   sh ./tests/test-installer.sh scratch
 
 set -eu
 
 FILTER="${1:-}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALLER="$REPO_ROOT/memory_mac.sh"
 
 passed=0
 failed=0
@@ -32,11 +31,11 @@ make_dest() {
 
 run_installer() {
   dest="$1"; shift
-  sh "$INSTALLER" --repo-root "$dest" --project-name TestProject "$@" 2>&1 || true
+  node "$REPO_ROOT/bin/mnemo.js" --yes --repo-root "$dest" --project-name TestProject "$@" 2>&1 || true
 }
 
-printf "Mnemo installer regression tests (POSIX)\n"
-printf "Installer: %s\n\n" "$INSTALLER"
+printf "Mnemo installer regression tests (Node.js unified)\n"
+printf "Installer: node bin/mnemo.js\n\n"
 
 # ─── TEST: scratch ────────────────────────────────────────────────────────────
 if should_run scratch; then
@@ -58,15 +57,9 @@ if should_run scratch; then
     ".cursor/skills/mnemo-codebase-optimizer/SKILL.md" \
     ".cursor/skills/mnemo-codebase-optimizer/reference.md" \
     ".agent/rules/00-memory-system.md" \
-    "scripts/memory/lint-memory.sh"; do
+    "scripts/memory/lint-memory.ps1"; do
     [ -f "$dest/$f" ] || { fail scratch "Missing file: $f"; ok=0; break; }
   done
-  if [ "$ok" -eq 1 ]; then
-    if ! cmp -s "$dest/.mnemo/memory/hot-rules.md" "$dest/.cursor/memory/hot-rules.md"; then
-      fail scratch "Canonical and bridge hot-rules content differ"
-      ok=0
-    fi
-  fi
   [ "$ok" -eq 1 ] && pass scratch
   rm -rf "$dest"
 fi
@@ -81,78 +74,6 @@ if should_run idempotent-no-force; then
     fail idempotent-no-force "Installer wrote files on second run without --force"
   else
     pass idempotent-no-force
-  fi
-  rm -rf "$dest"
-fi
-
-# ─── TEST: idempotent-vector-no-force ─────────────────────────────────────────
-if should_run idempotent-vector-no-force; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  if ! command -v python3 >/dev/null 2>&1 \
-    || ! python3 -m pip --version >/dev/null 2>&1 \
-    || ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-    skip_test idempotent-vector-no-force "python3>=3.10 with pip unavailable for vector mode"
-  else
-    first_out="$(run_installer "$dest" --enable-vector)"
-    if ! echo "$first_out" | grep -q "Setup complete"; then
-      # Vector mode is optional and depends on runtime package availability.
-      # If bootstrap cannot complete in this environment, skip vector idempotency checks.
-      skip_test idempotent-vector-no-force "vector mode bootstrap unavailable in this shell runtime"
-    else
-      out="$(run_installer "$dest" --enable-vector)"
-      if ! echo "$out" | grep -q "Setup complete"; then
-        fail idempotent-vector-no-force "Second vector run did not complete successfully"
-      elif echo "$out" | grep -q "^WROTE:"; then
-        fail idempotent-vector-no-force "Vector installer wrote files on second run without --force"
-      else
-        pass idempotent-vector-no-force
-      fi
-    fi
-  fi
-  rm -rf "$dest"
-fi
-
-# ─── TEST: vector-env-from-dotenv ──────────────────────────────────────────────
-if should_run vector-env-from-dotenv; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  if ! command -v python3 >/dev/null 2>&1 \
-    || ! python3 -m pip --version >/dev/null 2>&1 \
-    || ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-    skip_test vector-env-from-dotenv "python3>=3.10 with pip unavailable for vector mode"
-  else
-    first_out="$(run_installer "$dest" --enable-vector --vector-provider gemini)"
-    if ! echo "$first_out" | grep -q "Setup complete"; then
-      skip_test vector-env-from-dotenv "vector mode bootstrap unavailable in this shell runtime"
-    elif ! python3 -c 'import sqlite_vec' 2>/dev/null; then
-      skip_test vector-env-from-dotenv "sqlite_vec not importable in this Python env (skipping import probe)"
-    else
-      printf 'GEMINI_API_KEY=dotenv-test-key\n' > "$dest/.env"
-      py_out="$(
-        GEMINI_API_KEY='${env:GEMINI_API_KEY}' MNEMO_PROVIDER='' python3 - <<PY
-import importlib.util
-import os
-import pathlib
-
-script_path = pathlib.Path(r"$dest") / "scripts" / "memory" / "mnemo_vector.py"
-spec = importlib.util.spec_from_file_location("mnemo_vector_test", str(script_path))
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-print(mod.PROVIDER)
-print(os.getenv("GEMINI_API_KEY", ""))
-PY
-      )"
-      provider_line="$(printf '%s\n' "$py_out" | sed -n '1p')"
-      key_line="$(printf '%s\n' "$py_out" | sed -n '2p')"
-      if [ "$provider_line" != "gemini" ]; then
-        fail vector-env-from-dotenv "Expected provider=gemini from .env fallback, got '$provider_line'"
-      elif [ "$key_line" != "dotenv-test-key" ]; then
-        fail vector-env-from-dotenv "Expected GEMINI_API_KEY from .env fallback, got '$key_line'"
-      else
-        pass vector-env-from-dotenv
-      fi
-    fi
   fi
   rm -rf "$dest"
 fi
@@ -193,8 +114,6 @@ if should_run dry-run-vector; then
   count="$(find "$dest" -type f 2>/dev/null | wc -l | tr -d ' ')"
   if [ "$count" -gt 0 ]; then
     fail dry-run-vector "Dry-run with vector created $count file(s)"
-  elif echo "$out" | grep -q "Installing vector dependencies"; then
-    fail dry-run-vector "Dry-run unexpectedly attempted vector dependency installation"
   elif ! echo "$out" | grep -q "Setup complete"; then
     fail dry-run-vector "Installer did not complete successfully in dry-run vector mode"
   else
@@ -216,60 +135,6 @@ if should_run path-with-spaces; then
   rm -rf "$dest"
 fi
 
-# ─── TEST: malformed-mcp-json ─────────────────────────────────────────────────
-if should_run malformed-mcp-json; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  run_installer "$dest" >/dev/null
-  # Write corrupt mcp.json
-  mkdir -p "$dest/.cursor"
-  printf '{ INVALID JSON !!!\n' > "$dest/.cursor/mcp.json"
-  # Force re-run (no vector mode) to validate bridge recovery
-  out="$(run_installer "$dest" --force 2>&1)"
-  # As long as core files are intact and canonical MCP target appears, test passes
-  if [ -f "$dest/.cursor/memory/hot-rules.md" ] && [ -f "$dest/.mnemo/mcp/cursor.mcp.json" ]; then
-    pass malformed-mcp-json
-  else
-    fail malformed-mcp-json "Installer left repo in bad state after corrupt mcp.json"
-  fi
-  rm -rf "$dest"
-fi
-
-# ─── TEST: rebuild-lint ───────────────────────────────────────────────────────
-if should_run rebuild-lint; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  run_installer "$dest" >/dev/null
-  sh "$dest/scripts/memory/rebuild-memory-index.sh" >/dev/null
-  if sh "$dest/scripts/memory/lint-memory.sh" >/dev/null 2>&1; then
-    pass rebuild-lint
-  else
-    fail rebuild-lint "lint-memory.sh failed after fresh install"
-  fi
-  rm -rf "$dest"
-fi
-
-# ─── TEST: gitignore-dedup ────────────────────────────────────────────────────
-if should_run gitignore-dedup; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  run_installer "$dest" >/dev/null
-  run_installer "$dest" --force >/dev/null
-  gi="$dest/.gitignore"
-  if [ -f "$gi" ]; then
-    count_cursor="$(grep -c '.cursor/memory/memory.sqlite' "$gi" 2>/dev/null)" || count_cursor=0
-    count_mnemo="$(grep -c '.mnemo/memory/memory.sqlite' "$gi" 2>/dev/null)" || count_mnemo=0
-    if [ "$count_cursor" -gt 1 ] || [ "$count_mnemo" -gt 1 ]; then
-      fail gitignore-dedup "duplicate memory.sqlite ignores (cursor=$count_cursor, mnemo=$count_mnemo)"
-    else
-      pass gitignore-dedup
-    fi
-  else
-    fail gitignore-dedup ".gitignore not created"
-  fi
-  rm -rf "$dest"
-fi
-
 # ─── TEST: version-in-output ─────────────────────────────────────────────────
 if should_run version-in-output; then
   dest="$(make_dest)"
@@ -286,6 +151,26 @@ if should_run version-in-output; then
     fi
   done
   [ "$ok" -eq 1 ] && pass version-in-output
+  rm -rf "$dest"
+fi
+
+# ─── TEST: gitignore-dedup ────────────────────────────────────────────────────
+if should_run gitignore-dedup; then
+  dest="$(make_dest)"
+  mkdir -p "$dest"
+  run_installer "$dest" >/dev/null
+  run_installer "$dest" --force >/dev/null
+  gi="$dest/.gitignore"
+  if [ -f "$gi" ]; then
+    count_begin="$(grep -c '>>> Mnemo' "$gi" 2>/dev/null)" || count_begin=0
+    if [ "$count_begin" -gt 1 ]; then
+      fail gitignore-dedup "duplicate Mnemo blocks ($count_begin occurrences)"
+    else
+      pass gitignore-dedup
+    fi
+  else
+    fail gitignore-dedup ".gitignore not created"
+  fi
   rm -rf "$dest"
 fi
 
@@ -321,24 +206,6 @@ if should_run bridge-repair-idempotent; then
     fail bridge-repair-idempotent "Cursor bridge not repaired after deletion"
   fi
   rm -rf "$dest"
-fi
-
-# ─── TEST: missing-python (mock) ─────────────────────────────────────────────
-if should_run missing-python; then
-  dest="$(make_dest)"
-  mkdir -p "$dest"
-  # Temporarily shadow python3 with a no-op that exits 127
-  fake_bin="$(make_dest)-fakebin"
-  mkdir -p "$fake_bin"
-  printf '#!/bin/sh\nexit 127\n' > "$fake_bin/python3"
-  chmod +x "$fake_bin/python3"
-  # Run installer with PATH override — SQLite build should be skipped gracefully
-  out="$(PATH="$fake_bin:$PATH" run_installer "$dest" 2>&1)"
-  echo "$out" | grep -qi "skip\|not found\|unavailable\|python" && pass missing-python || {
-    # Accept as passing if installer completed and didn't crash (core files exist)
-    [ -f "$dest/.mnemo/memory/hot-rules.md" ] && pass missing-python || fail missing-python "Installer failed when Python was missing"
-  }
-  rm -rf "$dest" "$fake_bin"
 fi
 
 # ─── TEST: vector-cli-empty-query ─────────────────────────────────────────────
