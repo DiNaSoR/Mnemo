@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mnemo: A Token-Safe Structured Memory System with Autonomous Lifecycle Management for AI Coding Agents
+    </title>
+    <meta name="description"
+        content="Research paper on Mnemo, a structured memory system providing token-safe retrieval, autonomous lifecycle management, and semantic recall for AI coding agents across multiple IDE environments.">
+    <style>
+        /* Latin Modern (Computer Modern for web) — the authentic LaTeX font */
+        @font-face {
+            font-family: 'Latin Modern Roman';
+            font-style: normal;
+            font-weight: 400;
+            src: url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-regular.woff2') format('woff2'), url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-regular.woff') format('woff');
+        }
+
+        @font-face {
+            font-family: 'Latin Modern Roman';
+            font-style: normal;
+            font-weight: 700;
+            src: url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-bold.woff2') format('woff2'), url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-bold.woff') format('woff');
+        }
+
+        @font-face {
+            font-family: 'Latin Modern Roman';
+            font-style: italic;
+            font-weight: 400;
+            src: url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-italic.woff2') format('woff2'), url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-italic.woff') format('woff');
+        }
+
+        @font-face {
+            font-family: 'Latin Modern Roman';
+            font-style: italic;
+            font-weight: 700;
+            src: url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-bolditalic.woff2') format('woff2'), url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmroman10-bolditalic.woff') format('woff');
+        }
+
+        @font-face {
+            font-family: 'Latin Modern Mono';
+            font-style: normal;
+            font-weight: 400;
+            src: url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmmono10-regular.woff2') format('woff2'), url('https://cdn.jsdelivr.net/gh/niclasberg/latex-fonts@master/fonts/lmmono10-regular.woff') format('woff');
+        }
+
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --text: #000;
+            --bg: #fff;
+            --link: #00529b;
+            --max-w: 960px;
+            --font-body: 'Latin Modern Roman', 'Computer Modern', 'CMU Serif', 'Times New Roman', 'Times', serif;
+            --font-mono: 'Latin Modern Mono', 'CMU Typewriter Text', 'Courier New', monospace;
+        }
+
+        html {
+            font-size: 10pt;
+        }
+
+        body {
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.45;
+            max-width: var(--max-w);
+            margin: 0 auto;
+            padding: 40px 0 60px;
+        }
+
+        /* ── Headings (LaTeX style) ───────────────────────────── */
+        h1 {
+            font-size: 17.28pt;
+            font-weight: 700;
+            text-align: center;
+            margin: 0 0 6pt;
+            line-height: 1.2;
+        }
+
+        h2 {
+            font-size: 14.4pt;
+            font-weight: 700;
+            margin: 24pt 0 8pt;
+            line-height: 1.25;
+            border: none;
+        }
+
+        h3 {
+            font-size: 12pt;
+            font-weight: 700;
+            margin: 16pt 0 4pt;
+            line-height: 1.3;
+        }
+
+        h4 {
+            font-size: 12pt;
+            font-weight: 700;
+            font-style: italic;
+            margin: 12pt 0 4pt;
+        }
+
+        /* ── Body text ────────────────────────────────────────── */
+        p {
+            margin: 0 0 8pt;
+            text-align: justify;
+            text-indent: 1.5em;
+            hyphens: auto;
+            -webkit-hyphens: auto;
+        }
+
+        /* No indent after headings, figures, tables, lists */
+        h1+p,
+        h2+p,
+        h3+p,
+        h4+p,
+        figure+p,
+        table+p,
+        ul+p,
+        ol+p,
+        blockquote+p,
+        .abstract p,
+        .no-indent {
+            text-indent: 0;
+        }
+
+        a {
+            color: var(--link);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Lists ────────────────────────────────────────────── */
+        ul,
+        ol {
+            margin: 4pt 0 8pt 2em;
+        }
+
+        li {
+            margin-bottom: 2pt;
+            text-align: justify;
+        }
+
+        /* ── Blockquote ───────────────────────────────────────── */
+        blockquote {
+            margin: 8pt 2em;
+            font-style: italic;
+            font-size: 11pt;
+        }
+
+        /* ── Code (monospace) ─────────────────────────────────── */
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.88em;
+            background: none;
+        }
+
+        pre {
+            font-family: var(--font-mono);
+            font-size: 9pt;
+            line-height: 1.4;
+            margin: 8pt 0 10pt;
+            padding: 6pt 12pt;
+            overflow-x: auto;
+            border: none;
+            background: none;
+        }
+
+        /* ── Tables (LaTeX booktabs-style) ────────────────────── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8pt auto 12pt;
+            font-size: 10pt;
+        }
+
+        th,
+        td {
+            padding: 4pt 8pt;
+            text-align: left;
+            border: none;
+            vertical-align: top;
+        }
+
+        thead tr {
+            border-top: 2px solid #000;
+            border-bottom: 1px solid #000;
+        }
+
+        thead th {
+            font-weight: 700;
+        }
+
+        tbody tr:last-child {
+            border-bottom: 2px solid #000;
+        }
+
+        tbody tr {
+            border-bottom: none;
+        }
+
+        /* ── Figures ──────────────────────────────────────────── */
+        figure {
+            margin: 16pt 0;
+            text-align: center;
+        }
+
+        figure img {
+            max-width: 90%;
+            height: auto;
+            border: none;
+        }
+
+        figcaption {
+            font-size: 10pt;
+            margin-top: 6pt;
+            text-align: justify;
+            padding: 0 2em;
+        }
+
+        figcaption strong {
+            font-weight: 700;
+        }
+
+        /* ── Paper header ─────────────────────────────────────── */
+        .paper-header {
+            text-align: center;
+            margin-bottom: 20pt;
+            padding-bottom: 0;
+            border: none;
+        }
+
+        .authors {
+            font-size: 12pt;
+            margin: 10pt 0 2pt;
+            font-style: normal;
+            font-weight: 400;
+            text-indent: 0;
+            text-align: center;
+        }
+
+        .affiliation {
+            font-size: 10pt;
+            font-style: italic;
+            margin-bottom: 2pt;
+        }
+
+        .date {
+            font-size: 10pt;
+            margin-top: 4pt;
+        }
+
+        /* ── Abstract ─────────────────────────────────────────── */
+        .abstract {
+            margin: 20pt 3em;
+            padding: 0;
+            border: none;
+            background: none;
+            border-radius: 0;
+        }
+
+        .abstract h2 {
+            text-align: center;
+            font-size: 12pt;
+            font-weight: 700;
+            margin: 0 0 4pt;
+            border: none;
+        }
+
+        .abstract p {
+            font-size: 10pt;
+            line-height: 1.35;
+            margin-bottom: 4pt;
+            text-indent: 0;
+        }
+
+        .keywords {
+            font-size: 10pt;
+        }
+
+        .keywords strong {
+            font-weight: 700;
+        }
+
+        /* ── Equations ────────────────────────────────────────── */
+        .eq {
+            text-align: center;
+            margin: 12pt 0;
+            font-style: italic;
+            font-size: 12pt;
+        }
+
+        /* ── Section numbering ────────────────────────────────── */
+        .section-num {
+            margin-right: 0.4em;
+        }
+
+        /* ── Footnote / copyright ─────────────────────────────── */
+        .footnote {
+            font-size: 9pt;
+            border-top: 0.5pt solid #000;
+            margin-top: 24pt;
+            padding-top: 6pt;
+        }
+
+        .footnote p {
+            text-indent: 0;
+            font-size: 9pt;
+        }
+
+        /* ── Table of Contents ────────────────────────────────── */
+        .toc {
+            margin: 16pt 0 20pt;
+            padding: 0;
+            border: none;
+            background: none;
+        }
+
+        .toc h3 {
+            font-size: 12pt;
+            font-weight: 700;
+            text-align: center;
+            text-transform: none;
+            letter-spacing: normal;
+            margin: 0 0 6pt;
+        }
+
+        .toc ol {
+            font-size: 11pt;
+            margin: 0;
+            padding-left: 2em;
+        }
+
+        .toc li {
+            margin-bottom: 1pt;
+        }
+
+        .toc a {
+            color: var(--link);
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Superscript citations ────────────────────────────── */
+        sup {
+            font-size: 0.75em;
+            line-height: 0;
+        }
+
+        /* ── Two-column body layout ───────────────────────────── */
+        .two-col {
+            column-count: 2;
+            column-gap: 24pt;
+            column-rule: none;
+        }
+
+        .two-col h2 {
+            column-span: all;
+        }
+
+        .two-col figure {
+            column-span: all;
+        }
+
+        .two-col figure img {
+            max-width: 70%;
+        }
+
+        .two-col table {
+            font-size: 9pt;
+        }
+
+        .two-col .footnote {
+            column-span: all;
+        }
+
+        /* ── Responsive ───────────────────────────────────────── */
+        @media (max-width: 720px) {
+            body {
+                padding: 20px 16px 40px;
+                max-width: 100%;
+            }
+
+            .two-col {
+                column-count: 1;
+            }
+
+            .abstract {
+                margin: 16pt 1em;
+            }
+
+            figcaption {
+                padding: 0 1em;
+            }
+        }
+
+        /* ── Print ────────────────────────────────────────────── */
+        @media print {
+            body {
+                max-width: 100%;
+                padding: 0;
+            }
+
+            a {
+                color: #000;
+            }
+
+            figure img {
+                max-width: 70%;
+            }
+
+            .toc a {
+                color: #000;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="paper-header">
+        <h1>Mnemo: A Token-Safe Structured Memory System with Autonomous Lifecycle Management for AI Coding Agents</h1>
+        <p class="authors">DiNaSoR</p>
+        <p class="affiliation">Open-Source Software · GitHub: DiNaSoR/Mnemo</p>
+        <p class="date">March 2026 · Version 0.0.8</p>
+    </header>
+
+    <div class="abstract">
+        <h2>Abstract</h2>
+        <p>Large Language Model (LLM)–based coding agents suffer from stateless execution: each session begins with no
+            recollection of prior decisions, discovered bugs, or architectural constraints. Existing IDE-specific memory
+            mechanisms—rule files, scratch pads, conversation logs—are fragmented, unstructured, and consume token
+            budgets unpredictably. We present <strong>Mnemo</strong>, an open-source structured memory system designed
+            for AI coding agents that provides (i) a canonical, token-safe retrieval hierarchy with deterministic read
+            ordering, (ii) an autonomous runtime capable of no-human-in-the-loop memory lifecycle management including
+            fact ingestion, contradiction detection, entity resolution, and lesson promotion, (iii) a score-fusion
+            reranking engine combining semantic similarity, authority weight, temporal relevance, and entity
+            consistency, and (iv) multi-IDE compatibility through a bridge architecture supporting Cursor, Claude Code,
+            Gemini Antigravity, OpenAI Codex, Windsurf, and others. Mnemo installs via a single cross-platform Node.js
+            CLI (<code>npx&nbsp;@dinasor/mnemo-cli</code>) and scaffolds an always-read memory layer, atomic lessons,
+            monthly journals, and optional vector-backed semantic recall using MCP tools. We describe the system
+            architecture across 12 autonomy modules, 4 core installer modules, 8 feature modules, and a 7-table SQLite
+            schema with <code>sqlite-vec</code> for cosine-distance embedding search. Continuous integration includes
+            cross-platform smoke tests, idempotency verification, modularization guards, nightly retrieval-quality
+            benchmarks, and drift detection. Mnemo has been deployed across active development projects and demonstrates
+            measurable reduction in context-window waste and agent re-discovery overhead.</p>
+        <p class="keywords"><strong>Keywords:</strong> AI coding agents, structured memory, autonomous lifecycle
+            management, token-safe retrieval, vector search, score fusion, MCP tools, developer tooling, LLM context
+            optimization</p>
+    </div>
+
+    <nav class="toc">
+        <h3>Table of Contents</h3>
+        <ol>
+            <li><a href="#sec1">Introduction</a></li>
+            <li><a href="#sec2">Background and Related Work</a></li>
+            <li><a href="#sec3">System Architecture</a></li>
+            <li><a href="#sec4">Memory Taxonomy and Retrieval Hierarchy</a></li>
+            <li><a href="#sec5">Autonomous Runtime</a></li>
+            <li><a href="#sec6">Score-Fusion Reranking Engine</a></li>
+            <li><a href="#sec7">Vector Engine and MCP Integration</a></li>
+            <li><a href="#sec8">Database Schema</a></li>
+            <li><a href="#sec9">Installer Architecture</a></li>
+            <li><a href="#sec10">Security and Vault Policy</a></li>
+            <li><a href="#sec11">Continuous Integration and Quality Assurance</a></li>
+            <li><a href="#sec12">Discussion and Future Work</a></li>
+            <li><a href="#sec13">Conclusion</a></li>
+            <li><a href="#references">References</a></li>
+        </ol>
+    </nav>
+
+    <div class="two-col">
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec1"><span class="section-num">1.</span> Introduction</h2>
+
+        <p>The emergence of LLM-powered coding agents—tools such as Cursor, Claude Code, GitHub Copilot, OpenAI Codex,
+            and
+            Windsurf—has fundamentally altered software development workflows. These agents can generate, refactor, and
+            debug code with remarkable fluency. However, they share a critical limitation: <em>statelessness</em>. Each
+            invocation begins with a blank slate; the agent possesses no durable memory of previous sessions, discovered
+            constraints, or architectural decisions <sup>[1]</sup>.</p>
+
+        <p>This statelessness produces several observable pathologies in practice:</p>
+        <ul>
+            <li><strong>Re-discovery overhead.</strong> Agents repeatedly analyze the same codebase structures, wasting
+                tokens and latency re-learning what was understood in prior sessions.</li>
+            <li><strong>Contradictory decisions.</strong> Without memory of past fixes, agents may re-introduce
+                previously
+                resolved bugs or violate established architectural invariants.</li>
+            <li><strong>Token budget waste.</strong> Attempting to compensate for amnesia by loading entire codebases
+                into
+                context windows quickly exhausts token budgets, degrading generation quality.</li>
+            <li><strong>Fragmented knowledge.</strong> Project knowledge accumulates in disparate IDE-specific
+                formats—Cursor rules, Claude CLAUDE.md files, AGENTS.md—with no unified retrieval order.</li>
+        </ul>
+
+        <p>Mnemo addresses these challenges through a principled, structured memory system that operates as a
+            <em>middleware
+                layer</em> between the developer's repository and the AI agent. Rather than requiring changes to agent
+            architectures or IDE internals, Mnemo works by scaffolding a well-defined knowledge base within the project
+            directory and exposing it through each IDE's native rule/memory loading mechanism.</p>
+
+        <p>The system's core design principles are:</p>
+        <ol>
+            <li><strong>Predictable retrieval order</strong> — agents read high-signal memory files first, in a
+                deterministic sequence that minimizes token expenditure.</li>
+            <li><strong>Atomic knowledge units</strong> — lessons, journal entries, and digests are stored as
+                individual,
+                frontmatter-tagged markdown files that can be searched and loaded independently.</li>
+            <li><strong>Autonomous operation</strong> — an optional runtime automatically ingests changes, classifies
+                facts,
+                detects contradictions, resolves entities, and promotes stable signals into lessons, all without human
+                intervention.</li>
+            <li><strong>IDE-agnostic compatibility</strong> — a bridge architecture ensures the same canonical memory
+                root
+                (<code>.mnemo/</code>) is accessible from any supported IDE through symlinks, junctions, or mirror
+                copies.
+            </li>
+        </ol>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec2"><span class="section-num">2.</span> Background and Related Work</h2>
+
+        <h3>2.1 Context Window Limitations in LLMs</h3>
+        <p>Modern LLMs operate within finite context windows—typically 8K to 200K tokens depending on the model. While
+            architectural advances like Rotary Position Embeddings (RoPE) and sliding-window attention have expanded
+            these
+            limits, the practical cost of long-context inference remains high, both in latency and financial terms.
+            Research
+            has shown that retrieval quality degrades non-linearly as context length increases, a phenomenon
+            characterized
+            as the "lost in the middle" effect <sup>[2]</sup>. This makes judicious selection and ordering of retrieved
+            content existentially important for agent performance.</p>
+
+        <h3>2.2 IDE-Specific Memory Mechanisms</h3>
+        <p>Several IDE-integrated agent systems have introduced project-level memory files: Cursor supports
+            <code>.cursor/rules/</code> with MDC rule files, Claude Code uses <code>CLAUDE.md</code>, and Antigravity
+            loads
+            from <code>.agent/rules/</code>. However, these mechanisms are proprietary, unstructured, and lack (i) a
+            canonical retrieval ordering, (ii) lifecycle management for stale knowledge, and (iii) inter-IDE
+            portability. A
+            project using multiple agents must maintain parallel memory files with no guarantee of consistency.
+        </p>
+
+        <h3>2.3 Retrieval-Augmented Generation (RAG)</h3>
+        <p>RAG systems <sup>[3]</sup> augment LLM generation by retrieving relevant documents from external stores at
+            inference time. While effective for general knowledge retrieval, standard RAG pipelines are ill-suited for
+            <em>project memory</em> because they typically lack (i) authority-weighted retrieval ordering, (ii) temporal
+            decay for episodic content, (iii) entity-aware result boosting, and (iv) sensitivity/redaction enforcement.
+            Mnemo's vector layer extends RAG principles with these domain-specific signals through a score-fusion
+            reranking
+            architecture.
+        </p>
+
+        <h3>2.4 Model Context Protocol (MCP)</h3>
+        <p>The Model Context Protocol <sup>[4]</sup> provides a standardized interface for exposing tools and resources
+            to
+            LLM agents. Mnemo leverages MCP to register five semantic memory tools (<code>vector_search</code>,
+            <code>vector_sync</code>, <code>vector_forget</code>, <code>vector_health</code>,
+            <code>memory_status</code>)
+            that IDEs can invoke directly, enabling seamless integration without custom agent modifications.
+        </p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec3"><span class="section-num">3.</span> System Architecture</h2>
+
+        <figure>
+            <img src="images/fig1-architecture.png"
+                alt="Mnemo layered architecture diagram showing IDE, Bridge, Memory, and Vector Engine layers">
+            <figcaption><strong>Figure 1.</strong> Layered architecture of the Mnemo memory system. The IDE Layer
+                interfaces
+                with agents through native rule-loading mechanisms. The Bridge Layer maintains permanent compatibility
+                bridges via symlinks, junctions, or mirror copies. The Memory Layer contains the structured knowledge
+                base.
+                The Vector Engine Layer provides optional semantic recall through embedding search and MCP tools.
+            </figcaption>
+        </figure>
+
+        <p>Mnemo's architecture comprises four principal layers, as depicted in Figure 1:</p>
+
+        <h3>3.1 IDE Layer</h3>
+        <p>Each supported IDE reads memory through its native mechanism: Cursor loads <code>.cursor/rules/*.mdc</code>
+            and
+            <code>.cursor/memory/</code>; Claude Code reads from <code>.mnemo/memory/</code> following the index
+            retrieval
+            order; Antigravity loads <code>.agent/rules/*.md</code>; Codex and Windsurf use <code>.mnemo/memory/</code>
+            directly. No IDE-specific code modifications are required.
+        </p>
+
+        <h3>3.2 Bridge Layer</h3>
+        <p>The bridge subsystem (<code>bin/installer/core/bridge.js</code>) creates and maintains permanent
+            compatibility
+            bridges between the canonical <code>.mnemo/</code> root and IDE-specific directories. On platforms
+            supporting
+            symbolic links (macOS, Linux), directory symlinks are used. On Windows, NTFS junctions are preferred. When
+            neither is available, a file-level mirror copy is performed. All bridge operations are idempotent and
+            include
+            self-repair detection to handle corrupted or stale references.</p>
+
+        <h3>3.3 Memory Layer</h3>
+        <p>The canonical memory root (<code>.mnemo/memory/</code>) contains the structured knowledge base organized by
+            content type: always-read files (<code>hot-rules.md</code>, <code>active-context.md</code>,
+            <code>memo.md</code>), atomic lessons (<code>lessons/L-XXX-*.md</code>), monthly journals
+            (<code>journal/YYYY-MM.md</code>), digests (<code>digests/*.digest.md</code>), architectural decision
+            records
+            (<code>adr/</code>), and templates. A memory index (<code>index.md</code>) specifies the deterministic read
+            order.
+        </p>
+
+        <h3>3.4 Vector Engine Layer</h3>
+        <p>An optional semantic layer (<code>mnemo_vector.py</code>, 838 lines) provides embedding-based search over
+            memory
+            content. It supports dual embedding providers (OpenAI <code>text-embedding-3-small</code> and Google Gemini
+            <code>text-embedding-004</code>), implements incremental chunk-level synchronization, and exposes its
+            capabilities through five MCP tools. The vector engine uses <code>sqlite-vec</code> for cosine-distance
+            nearest-neighbor search with configurable embedding dimensions (default 1536).
+        </p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec4"><span class="section-num">4.</span> Memory Taxonomy and Retrieval Hierarchy</h2>
+
+        <figure>
+            <img src="images/fig3-retrieval-hierarchy.png"
+                alt="Retrieval hierarchy pyramid showing prioritized memory layers">
+            <figcaption><strong>Figure 2.</strong> Token-safe retrieval hierarchy. The always-read tier at the top
+                consumes
+                minimal tokens while providing maximum signal. Lower tiers are accessed only through index search,
+                preventing unnecessary context consumption.</figcaption>
+        </figure>
+
+        <p>Mnemo classifies all memory content into five semantic types, each with an assigned authority weight (α ∈ [0,
+            1])
+            and temporal scope:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Memory Type</th>
+                    <th>α</th>
+                    <th>Temporal Scope</th>
+                    <th>Content Source</th>
+                    <th>Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Core</strong></td>
+                    <td>1.0</td>
+                    <td>Atemporal</td>
+                    <td>hot-rules.md, memo.md</td>
+                    <td>Invariants, ownership maps, retrieval rules</td>
+                </tr>
+                <tr>
+                    <td><strong>Procedural</strong></td>
+                    <td>0.9</td>
+                    <td>Atemporal</td>
+                    <td>lessons/L-XXX-*.md</td>
+                    <td>Bug fixes, design patterns, pitfalls</td>
+                </tr>
+                <tr>
+                    <td><strong>Semantic</strong></td>
+                    <td>0.8</td>
+                    <td>Time-bound</td>
+                    <td>digests/, adr/</td>
+                    <td>Architecture summaries, conceptual overviews</td>
+                </tr>
+                <tr>
+                    <td><strong>Episodic</strong></td>
+                    <td>0.7</td>
+                    <td>Recency-sensitive</td>
+                    <td>journal/, active-context.md</td>
+                    <td>Daily work logs, session state</td>
+                </tr>
+                <tr>
+                    <td><strong>Vault</strong></td>
+                    <td>0.0</td>
+                    <td>N/A</td>
+                    <td>vault/</td>
+                    <td>Secrets, credentials (never retrieved)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>4.1 Deterministic Read Order</h3>
+        <p>The retrieval hierarchy enforces a strict reading protocol, codified in <code>index.md</code>:</p>
+        <ol>
+            <li><strong>Always read</strong> (in order): <code>hot-rules.md</code> → <code>active-context.md</code> →
+                <code>memo.md</code>. These files consume fewer than 100 lines total and provide the highest-signal
+                invariants.
+            </li>
+            <li><strong>Search-then-read</strong>: <code>lessons/index.md</code> → specific <code>L-XXX</code> files →
+                <code>digests/</code> → raw <code>journal/</code> only for archaeology.
+            </li>
+        </ol>
+
+        <p>This two-tier protocol prevents the "load everything" anti-pattern. The always-read tier is bounded to
+            approximately 20 lines for hot-rules and constrained by memory lint checks that enforce token budgets. The
+            search tier uses either file-system keyword search (<code>query-memory.ps1</code>), SQLite FTS, or vector
+            semantic search to locate relevant content before loading it.</p>
+
+        <h3>4.2 Authority Hierarchy</h3>
+        <p>A critical invariant encoded in <code>hot-rules.md</code> defines the authority override chain:</p>
+        <blockquote>
+            <p>Lessons override EVERYTHING (including active-context). Active-context overrides memo/journal (but NOT
+                lessons). Memo is long-term project truth. Journal is history.</p>
+        </blockquote>
+        <p>This hierarchy prevents the common failure mode where transient session context contradicts established
+            lessons—a
+            form of "memory hallucination" that occurs when recent, lower-authority content is prioritized over
+            validated
+            knowledge.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec5"><span class="section-num">5.</span> Autonomous Runtime</h2>
+
+        <figure>
+            <img src="images/fig2-autonomy-pipeline.png"
+                alt="Circular pipeline diagram of the autonomous memory lifecycle">
+            <figcaption><strong>Figure 3.</strong> The autonomous memory cycle. Each cycle is triggered by Git hooks
+                (post-commit, post-merge, post-checkout) or a periodic scheduler. The pipeline executes six stages
+                without
+                human intervention, acquiring a file lock to prevent concurrent modifications.</figcaption>
+        </figure>
+
+        <p>Mnemo's autonomous runtime (<code>autonomy/</code>) operates as a no-human-in-the-loop pipeline comprising 12
+            Python modules totaling approximately 2,400 lines. The runtime is triggered by Git hooks or a periodic
+            scheduler
+            (<code>MNEMO_SCHEDULE_INTERVAL</code>, default 300 seconds) and executes a single atomic memory cycle under
+            a
+            file lock with a 600-second stale-lock timeout.</p>
+
+        <h3>5.1 Pipeline Stages</h3>
+        <p>Each autonomous cycle proceeds through six stages orchestrated by <code>runner.py</code>:</p>
+        <ol>
+            <li><strong>Change Detection</strong> (<code>ingest_pipeline.py</code>): Scans <code>.mnemo/memory/</code>
+                for
+                <code>.md</code> files whose SHA-256 content hash differs from the stored hash in
+                <code>file_meta</code>. A
+                configurable skip list excludes index files, README files, and template directories.
+            </li>
+            <li><strong>Ingestion &amp; Chunking</strong> (<code>ingest_pipeline.py</code>): Changed files are read,
+                classified by memory type (using path heuristics from <code>common.py</code>), and split into chunks
+                using
+                context-aware markdown splitting. Journal files split on <code>## YYYY-MM-DD</code> date headers;
+                lessons
+                are treated as atomic units; general files split on heading boundaries. Each chunk is bounded to
+                <code>MAX_CHUNK_CHARS = 10,000</code> characters.
+            </li>
+            <li><strong>Entity Resolution</strong> (<code>entity_resolver.py</code>): Named entities—file paths, module
+                names, concepts—are extracted via heuristic patterns (backtick-delimited code references, capitalized
+                terms,
+                path-like strings). Each entity is assigned a stable UUID through exact-match lookup, alias resolution,
+                or
+                fuzzy matching (token Jaccard with threshold 0.85). Entity confidence is reinforced on each observation
+                and
+                decays by 0.02 per cycle without reinforcement; entities below minimum confidence are quarantined.</li>
+            <li><strong>Lifecycle Decision</strong> (<code>lifecycle_engine.py</code>): Each memory unit passes through
+                a
+                state machine that emits one of four operations: <code>ADD</code> (new content), <code>UPDATE</code>
+                (changed content with existing unit), <code>DEPRECATE</code> (contradicted or stale facts), or
+                <code>NOOP</code> (unchanged hash). Contradiction detection uses token Jaccard similarity bounded to the
+                200
+                most recent active facts.
+            </li>
+            <li><strong>Sensitivity Classification</strong> (<code>vault_policy.py</code>): Every <code>N</code> cycles
+                (configurable, default 10), all memory units undergo bulk sensitivity reclassification against the
+                policy
+                rules defined in <code>policies.yaml</code>.</li>
+            <li><strong>Journal Delta</strong> (<code>runner.py</code>): A summary of the cycle's actions—files
+                processed,
+                operations performed, entities resolved, facts deprecated—is appended as an autonomous journal entry.
+            </li>
+        </ol>
+
+        <h3>5.2 Fact Lifecycle State Machine</h3>
+
+        <figure>
+            <img src="images/fig5-lifecycle-fsm.png" alt="State machine diagram showing fact lifecycle transitions">
+            <figcaption><strong>Figure 4.</strong> Fact lifecycle state machine. Facts transition through NEW → ACTIVE
+                states via ADD operations, may be UPDATED on content changes, DEPRECATED on contradiction detection, or
+                PROMOTED to atomic lessons when stability criteria are met (confidence ≥ 0.95, stable across 3+ cycles).
+            </figcaption>
+        </figure>
+
+        <p>The lifecycle engine implements a principled approach to knowledge durability. Key facts are extracted from
+            memory unit content using heuristic patterns (declarative sentences, rule statements, code patterns). Each
+            fact
+            is tracked in the <code>facts</code> table with a confidence score and status. The
+            <code>PROMOTE_STABILITY_CYCLES = 3</code> parameter requires a fact to appear consistently across three
+            autonomous cycles before it qualifies for automatic promotion to a lesson file (<code>L-XXX-*.md</code>),
+            ensuring transient observations do not pollute the procedural knowledge base.
+        </p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec6"><span class="section-num">6.</span> Score-Fusion Reranking Engine</h2>
+
+        <figure>
+            <img src="images/fig4-score-fusion.png" alt="Visualization of the four-signal score fusion formula">
+            <figcaption><strong>Figure 5.</strong> Score fusion combines four normalized signals into a final relevance
+                score. Weight distribution reflects the primacy of semantic similarity while incorporating
+                domain-specific
+                signals that standard RAG systems lack.</figcaption>
+        </figure>
+
+        <p>The reranking engine (<code>reranker.py</code>) implements a weighted linear score-fusion model that combines
+            four normalized signals into a final relevance score <em>S</em> ∈ [0, 1]:</p>
+
+        <div class="eq">S = w<sub>sem</sub> · s<sub>semantic</sub> + w<sub>auth</sub> · s<sub>authority</sub> +
+            w<sub>temp</sub> · s<sub>temporal</sub> + w<sub>ent</sub> · s<sub>entity</sub></div>
+
+        <p>With default weights: <em>w<sub>sem</sub></em> = 0.55, <em>w<sub>auth</sub></em> = 0.25,
+            <em>w<sub>temp</sub></em> = 0.10, <em>w<sub>ent</sub></em> = 0.10 (Σ = 1.0). Each signal is computed as
+            follows:
+        </p>
+
+        <h4>6.1 Semantic Similarity (s<sub>semantic</sub>)</h4>
+        <p>Derived from cosine distance returned by <code>sqlite-vec</code> nearest-neighbor search:
+            <em>s<sub>semantic</sub></em> = max(0, 1 − <em>d<sub>cosine</sub></em>). This signal dominates the fusion
+            (55%)
+            because vector similarity is the strongest indicator of topical relevance.
+        </p>
+
+        <h4>6.2 Authority Weight (s<sub>authority</sub>)</h4>
+        <p>Looked up from the <code>AUTHORITY_WEIGHTS</code> table based on inferred memory type. Core memory
+            (hot-rules,
+            memo) receives maximum authority (1.0); vault content receives zero and is filtered entirely. This signal
+            (25%)
+            ensures that high-authority invariants are surfaced above lower-priority episodic content even when semantic
+            similarity is comparable.</p>
+
+        <h4>6.3 Temporal Relevance (s<sub>temporal</sub>)</h4>
+        <p>Computed differently based on the unit's temporal scope. For <em>atemporal</em> content (core, procedural): a
+            constant 0.8 (always moderately relevant). For <em>recency-sensitive</em> content (episodic): exponential
+            decay
+            with a half-life of 30 days: <em>s<sub>temporal</sub></em> = exp(−0.693 · age<sub>days</sub> / 30).
+            Time-sensitive queries (containing keywords like "today", "recent", "latest") receive a 1.5× boost, capped
+            at
+            1.0.</p>
+
+        <h4>6.4 Entity Consistency (s<sub>entity</sub>)</h4>
+        <p>A binary bonus when the queried entity appears in the result's <code>entity_tags</code>. Direct name matches
+            score 1.0; alias matches score 0.8; no match scores 0.0. This signal resolves ambiguity when multiple
+            results
+            have comparable semantic scores but differ in entity relevance.</p>
+
+        <p>Each <code>RankedResult</code> object carries all four sub-scores alongside the final score, enabling
+            human-readable explanations via the <code>explain()</code> method for debugging retrieval quality.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec7"><span class="section-num">7.</span> Vector Engine and MCP Integration</h2>
+
+        <p>The vector engine (<code>mnemo_vector.py</code>, 838 lines) serves as both an MCP server and a standalone CLI
+            tool, implemented using the <code>FastMCP</code> framework. It supports five operations:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>MCP Tool</th>
+                    <th>Function</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>vector_sync</code></td>
+                    <td>Incremental sync</td>
+                    <td>Detects changed files, chunks content, generates embeddings, upserts into
+                        <code>vec_memory</code>.
+                        Skips unchanged chunks within changed files for sub-file granularity.</td>
+                </tr>
+                <tr>
+                    <td><code>vector_search</code></td>
+                    <td>Semantic search</td>
+                    <td>KNN search with authority-aware reranking. Accepts optional <code>memory_type</code> filter.
+                        Input
+                        validated, retried with exponential backoff on API errors.</td>
+                </tr>
+                <tr>
+                    <td><code>vector_forget</code></td>
+                    <td>Selective deletion</td>
+                    <td>Removes vectors matching a path pattern (LIKE-escaped). Empty pattern clears entire index.</td>
+                </tr>
+                <tr>
+                    <td><code>vector_health</code></td>
+                    <td>Health check</td>
+                    <td>Reports provider, schema version, total chunks, files tracked, DB size, and memory root path.
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>memory_status</code></td>
+                    <td>Detailed status</td>
+                    <td>JSON summary including per-type memory unit counts, entity statistics, lifecycle event counts,
+                        and
+                        autonomy state.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>7.1 Embedding Provider Abstraction</h3>
+        <p>The engine implements an abstract <code>_EmbedProvider</code> base class with two concrete implementations:
+            <code>_GeminiProvider</code> (using <code>google.genai</code>) and <code>_OpenAIProvider</code> (using the
+            <code>openai</code> package). Provider selection is resolved at runtime through a cascade:
+            <code>MNEMO_PROVIDER</code> environment variable → presence of <code>GEMINI_API_KEY</code> → fallback to
+            OpenAI.
+            A sliding-window rate limiter (60 calls per 60 seconds) prevents API quota exhaustion during bulk sync
+            operations.
+        </p>
+
+        <h3>7.2 Lazy Initialization</h3>
+        <p>All module state is lazily initialized through a <code>_LazyState</code> singleton that defers file I/O,
+            environment variable resolution, and project <code>.env</code> loading until first access. This design
+            ensures
+            zero import-time side effects and enables the module to be safely imported in environments where API keys
+            may
+            not yet be configured.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec8"><span class="section-num">8.</span> Database Schema</h2>
+
+        <figure>
+            <img src="images/fig6-database-schema.png"
+                alt="Entity-relationship diagram of the Mnemo vector database schema">
+            <figcaption><strong>Figure 6.</strong> Schema v2 of the Mnemo vector database. The schema comprises seven
+                tables: a virtual vector table for embedding search, a typed memory unit catalog, fact lifecycle
+                tracking,
+                entity resolution with alias support, and autonomy state persistence. All tables use WAL journaling and
+                foreign key enforcement.</figcaption>
+        </figure>
+
+        <p>The vector database (<code>mnemo_vector.sqlite</code>) uses SQLite with the <code>sqlite-vec</code> extension
+            for
+            vector operations. Schema v2 (<code>schema.py</code>) defines seven tables with automatic migration from v1:
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Table</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>vec_memory</code></td>
+                    <td>Virtual vector table (cosine distance)</td>
+                    <td>embedding[1536], ref_path, content, source_file</td>
+                </tr>
+                <tr>
+                    <td><code>memory_units</code></td>
+                    <td>Typed memory unit catalog</td>
+                    <td>unit_id PK, source_ref, memory_type, authority, time_scope, sensitivity, entity_tags,
+                        content_hash
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>facts</code></td>
+                    <td>Canonical fact tracking</td>
+                    <td>fact_id PK, canonical_fact, status, confidence, source_ref</td>
+                </tr>
+                <tr>
+                    <td><code>lifecycle_events</code></td>
+                    <td>Audit trail for lifecycle operations</td>
+                    <td>event_id PK, unit_id FK, operation (ADD|UPDATE|DEPRECATE|NOOP), reason</td>
+                </tr>
+                <tr>
+                    <td><code>entities</code></td>
+                    <td>Stable entity registry</td>
+                    <td>entity_id PK, entity_name, entity_type, confidence</td>
+                </tr>
+                <tr>
+                    <td><code>entity_aliases</code></td>
+                    <td>Alias → entity mapping</td>
+                    <td>alias_id PK, entity_id FK, alias_text UNIQUE, confidence</td>
+                </tr>
+                <tr>
+                    <td><code>file_meta</code></td>
+                    <td>File hash tracking for change detection</td>
+                    <td>path PK, hash, chunk_count</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>Database configuration uses WAL journaling (<code>PRAGMA journal_mode=WAL</code>) for concurrent read access,
+            a
+            10-second busy timeout, and foreign key enforcement. The embedding dimension is configurable via
+            <code>MNEMO_EMBED_DIM</code> (default 1536 for OpenAI, adjustable for Gemini's 768-dimensional embeddings).
+        </p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec9"><span class="section-num">9.</span> Installer Architecture</h2>
+
+        <p>The installer is a modular Node.js system (<code>bin/installer/</code>) that replaced the original
+            dual-platform
+            shell scripts (<code>memory.ps1</code>, <code>memory_mac.sh</code>) in v0.0.8. It comprises 4 core modules
+            and 8
+            feature modules orchestrated by <code>index.js</code>:</p>
+
+        <h3>9.1 Core Modules</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Module</th>
+                    <th>Responsibility</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>paths.js</code></td>
+                    <td>Builds a complete path context object mapping all target directories (memory, rules, bridges,
+                        scripts, hooks)</td>
+                </tr>
+                <tr>
+                    <td><code>writer.js</code></td>
+                    <td>Atomic file writer supporting <code>--force</code> and <code>--dry-run</code> flags with
+                        idempotent
+                        SKIP/WROTE reporting</td>
+                </tr>
+                <tr>
+                    <td><code>template.js</code></td>
+                    <td>Mustache-style <code>{{VAR}}</code> template engine for rendering content and rule templates
+                        with
+                        project-specific variables</td>
+                </tr>
+                <tr>
+                    <td><code>bridge.js</code></td>
+                    <td>Cross-platform bridge manager with symlink/junction/mirror fallback and self-repair</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>9.2 Feature Modules</h3>
+        <p>Eight feature modules execute in sequence: <code>legacyMigration</code> → <code>scaffold</code> →
+            <code>rules</code> → <code>helperScripts</code> → <code>vectorSetup</code> → <code>mcpConfig</code> →
+            <code>gitHooks</code> → <code>gitignore</code> → <code>bridges</code>. Each module receives a shared context
+            object (<code>ctx</code>) and options (<code>opts</code>), ensuring consistent path resolution and flag
+            handling
+            across the pipeline.
+        </p>
+
+        <h3>9.3 CLI Wizard</h3>
+        <p>The entry point (<code>bin/mnemo.js</code>, 521 lines) provides an interactive ANSI-styled wizard that guides
+            users through vector mode enablement, provider selection, API key configuration, and dependency preflight
+            checks. Non-interactive operation is supported via <code>--yes</code> for CI/scripting environments. 19
+            content
+            templates under <code>scripts/memory/installer/templates/</code> are rendered at install time.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec10"><span class="section-num">10.</span> Security and Vault Policy</h2>
+
+        <p>Mnemo implements a three-tier sensitivity classification system (<code>vault_policy.py</code>) driven by
+            declarative YAML policies:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Sensitivity</th>
+                    <th>Behavior</th>
+                    <th>Matching Patterns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Secret</strong></td>
+                    <td>Never retrieved, never included in context packs, always redacted</td>
+                    <td><code>.env</code>, <code>vault/</code>, <code>*.secret.*</code>, <code>*credentials*</code>,
+                        <code>*private-key*</code>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>Internal</strong></td>
+                    <td>Accessible to agent/autonomous roles only, redacted for external</td>
+                    <td><code>active-context.md</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Public</strong></td>
+                    <td>Fully accessible, no redaction</td>
+                    <td>All other content</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>10.1 Redaction Pipeline</h3>
+        <p>The redaction system applies built-in regex patterns for common secret formats (API keys, bearer tokens, long
+            random strings) supplemented by project-specific patterns from <code>policies.yaml</code>. Redaction
+            replaces
+            matched content with a <code>[REDACTED]</code> placeholder. The <code>VaultPolicy</code> class provides
+            <code>classify_and_persist()</code> for individual units and <code>bulk_reclassify()</code> for periodic
+            sweeps.
+            An audit report method detects potential sensitivity leaks—units classified as <em>secret</em> that reside
+            outside vault directories.
+        </p>
+
+        <h3>10.2 Context Safety Guard</h3>
+        <p>The <code>ContextSafetyGuard</code> (<code>context_safety.py</code>) applies five checks before any retrieval
+            results are delivered to an agent:</p>
+        <ol>
+            <li><strong>Sensitivity redaction</strong> — vault/secret entries are unconditionally stripped.</li>
+            <li><strong>Low-signal suppression</strong> — snippets shorter than 20 characters are removed.</li>
+            <li><strong>Duplicate detection</strong> — near-duplicate pairs (Jaccard ≥ 0.85) are deduplicated, keeping
+                the
+                higher-scored result.</li>
+            <li><strong>Contradiction detection</strong> — conflicting keyword pairs ("do not" vs "always", "never" vs
+                "must", "disabled" vs "enabled") trigger warnings and reduce both results' scores by 10%.</li>
+            <li><strong>Token budget enforcement</strong> — results are truncated when cumulative character count
+                exceeds
+                <code>DEFAULT_TOKEN_BUDGET = 6,000</code> characters (~1,500 tokens).
+            </li>
+        </ol>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec11"><span class="section-num">11.</span> Continuous Integration and Quality Assurance</h2>
+
+        <p>Mnemo maintains four CI/CD workflows on GitHub Actions providing comprehensive coverage:</p>
+
+        <h3>11.1 Primary CI (<code>ci.yml</code>)</h3>
+        <p>Triggered on every push and pull request to <code>main</code>. Comprises 7 parallel jobs:</p>
+        <ul>
+            <li><strong>Windows smoke tests</strong> — scratch install, idempotency check (re-run without
+                <code>--force</code> produces only SKIPs), force overwrite check, dry-run validation, path-with-spaces
+                test.
+            </li>
+            <li><strong>POSIX smoke tests</strong> — identical test matrix on macOS-latest and ubuntu-latest with full
+                regression suite execution.</li>
+            <li><strong>Version consistency</strong> — validates VERSION file contains valid semver, CHANGELOG has
+                version
+                sections.</li>
+            <li><strong>Modularization guard</strong> — asserts existence of all 13 required Node.js installer modules,
+                8
+                content templates, and 12 autonomy template files. Prevents accidental deletion of critical
+                infrastructure.
+            </li>
+            <li><strong>CLI smoke test</strong> — verifies <code>--help</code> exits 0, <code>--yes --dry-run</code>
+                succeeds, full install produces core files.</li>
+            <li><strong>Retrieval quality benchmark</strong> — installs Mnemo to temp directory, runs
+                <code>benchmark_runner.py</code> against fixtures, reports retrieval metrics.
+            </li>
+            <li><strong>Autonomy syntax check</strong> — <code>py_compile</code> all Python modules (autonomy templates,
+                vector engine, test scripts).</li>
+        </ul>
+
+        <h3>11.2 Nightly Memory Benchmark (<code>nightly-memory-bench.yml</code>)</h3>
+        <p>Runs at 2 AM UTC daily. Extends the CI benchmark with baseline caching and drift detection: current metrics
+            are
+            compared against the persisted baseline, and regressions optionally fail the run. A modularization check
+            tracks
+            LOC trends and generates module file inventories.</p>
+
+        <h3>11.3 Quality Thresholds (<code>policies.yaml</code>)</h3>
+        <p>Benchmark thresholds are codified in the same policy file used by the runtime:</p>
+        <ul>
+            <li><code>min_hit_at_3</code>: 0.70 — at least 70% of test queries must return a relevant result in top-3.
+            </li>
+            <li><code>min_ndcg_at_5</code>: 0.65 — normalized discounted cumulative gain at 5 must exceed 0.65.</li>
+            <li><code>max_p95_latency_ms</code>: 2,000 — 95th percentile retrieval latency must stay under 2 seconds.
+            </li>
+            <li><code>max_token_cost_per_query</code>: 0.005 — embedding API cost per query must not exceed $0.005.</li>
+        </ul>
+
+        <h3>11.4 Additional Workflows</h3>
+        <p>A PR checks workflow (<code>pr-checks.yml</code>) runs ShellCheck as a blocking gate. The release workflow
+            (<code>release.yml</code>) performs preflight validation (version consistency, changelog completeness), npm
+            package publishing, and GitHub release creation with packaged installer assets.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec12"><span class="section-num">12.</span> Discussion and Future Work</h2>
+
+        <h3>12.1 Design Trade-offs</h3>
+        <p><strong>File-based vs. database-first storage.</strong> Mnemo deliberately uses markdown files as the
+            canonical
+            storage format rather than a database-first approach. This decision prioritizes human readability, Git
+            difftreeability, and IDE compatibility—agents can read memory files directly without requiring database
+            drivers.
+            The SQLite database serves as an acceleration layer for vector search and lifecycle tracking, not as the
+            source
+            of truth.</p>
+
+        <p><strong>Heuristic vs. learned classifiers.</strong> Memory type classification, entity extraction, and
+            contradiction detection use heuristic pattern matching rather than neural classifiers. While this limits
+            recall
+            compared to learned models, it ensures: (i) zero-latency classification without API calls, (ii)
+            deterministic
+            behavior for reproducibility, and (iii) no additional model dependencies. The heuristic approach is
+            validated
+            through the nightly benchmark pipeline.</p>
+
+        <p><strong>Linear score fusion.</strong> The weighted linear model was chosen over more sophisticated reranking
+            approaches (cross-encoders, learned-to-rank models) for the same reasons: determinism, speed, and
+            transparency.
+            The <code>explain()</code> method provides full signal decomposition, enabling developers to understand and
+            tune
+            ranking behavior. Future work may explore learned weight optimization based on click-through or acceptance
+            feedback from agent sessions.</p>
+
+        <h3>12.2 Limitations</h3>
+        <ul>
+            <li><strong>Single-project scope.</strong> Mnemo currently operates per-project. Cross-project knowledge
+                transfer (e.g., learning that a pattern discovered in Project A applies to Project B) is not supported.
+            </li>
+            <li><strong>Embedding cost.</strong> Vector mode requires an embedding API key and incurs per-token costs
+                for
+                <code>vector_sync</code> operations. The rate limiter and incremental chunk-level sync mitigate this,
+                but
+                large-scale memory bases may accumulate non-trivial API costs.
+            </li>
+            <li><strong>Heuristic entity extraction.</strong> The regex-based entity extractor captures code references
+                and
+                path-like strings but may miss domain-specific entities that lack syntactic markers. Integration with
+                NER
+                models could improve entity recall.</li>
+            <li><strong>Contradiction detection granularity.</strong> Token Jaccard similarity for contradiction
+                detection
+                operates at a coarse level. Two facts may appear contradictory at the keyword level while being
+                contextually
+                compatible (e.g., different modules having different rules). Semantic contradiction detection using
+                entailment models would reduce false positives.</li>
+        </ul>
+
+        <h3>12.3 Future Directions</h3>
+        <ol>
+            <li><strong>Cross-project memory federation</strong> — a shared lesson registry allowing transfer of
+                validated
+                procedural knowledge across repositories.</li>
+            <li><strong>Agent feedback loop</strong> — collecting implicit signals (which memory units agents access,
+                which
+                lessons prevent repeated mistakes) to learn optimal retrieval weights.</li>
+            <li><strong>Semantic contradiction detection</strong> — replacing keyword-pair heuristics with natural
+                language
+                inference (NLI) models for more nuanced conflict resolution.</li>
+            <li><strong>Memory compression</strong> — automatic generation of digests from journal entries using
+                summarization models, reducing episodic content volume while preserving retrieval signal.</li>
+            <li><strong>Multi-modal memory</strong> — extending the schema to support code snippets, architecture
+                diagrams,
+                and test results as first-class memory units with appropriate embedding strategies.</li>
+        </ol>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="sec13"><span class="section-num">13.</span> Conclusion</h2>
+
+        <p>Mnemo introduces a principled approach to the problem of AI coding agent memory. By structuring project
+            knowledge
+            into a typed hierarchy with deterministic retrieval ordering, the system eliminates the unpredictable token
+            consumption patterns that plague ad-hoc memory solutions. The autonomous runtime—comprising 12 coordinating
+            Python modules—manages the full knowledge lifecycle from ingestion through contradiction detection to lesson
+            promotion, all without human intervention.</p>
+
+        <p>The score-fusion reranking engine extends standard RAG retrieval with four domain-specific signals, and the
+            context safety guard ensures that only high-quality, non-contradictory, sensitivity-checked content reaches
+            the
+            agent's context window. The bridge architecture provides transparent multi-IDE compatibility, while the
+            modular
+            Node.js installer enables one-command deployment across Windows, macOS, and Linux.</p>
+
+        <p>With comprehensive CI coverage including cross-platform smoke tests, nightly retrieval-quality benchmarks,
+            and
+            drift detection, Mnemo provides a robust foundation for durable AI agent memory. As coding agents become
+            increasingly central to software development workflows, structured memory systems like Mnemo will become
+            essential infrastructure for maintaining knowledge continuity across sessions and agents.</p>
+
+        <p>Mnemo is open-source under the MIT license and available at <a
+                href="https://github.com/DiNaSoR/Mnemo">github.com/DiNaSoR/Mnemo</a>.</p>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <h2 id="references"><span class="section-num">14.</span> References</h2>
+
+        <ol style="font-size:10pt">
+            <li>Cognition AI, "Devin: The First AI Software Engineer," 2024. [Online]. Available: <a
+                    href="https://www.cognition.ai/blog/introducing-devin">cognition.ai/blog/introducing-devin</a></li>
+            <li>N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang, "Lost in the
+                Middle:
+                How Language Models Use Long Contexts," <em>Transactions of the Association for Computational
+                    Linguistics</em>, vol. 12, pp. 157–173, 2024.</li>
+            <li>P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler, M. Lewis, W. Yih, T.
+                Rocktäschel, S. Riedel, and D. Kiela, "Retrieval-Augmented Generation for Knowledge-Intensive NLP
+                Tasks,"
+                <em>Advances in Neural Information Processing Systems</em>, vol. 33, pp. 9459–9474, 2020.
+            </li>
+            <li>Anthropic, "Model Context Protocol Specification," 2024. [Online]. Available: <a
+                    href="https://modelcontextprotocol.io/">modelcontextprotocol.io</a></li>
+            <li>A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin,
+                "Attention Is All You Need," <em>Advances in Neural Information Processing Systems</em>, vol. 30, 2017.
+            </li>
+            <li>S. Robertson and H. Zaragoza, "The Probabilistic Relevance Framework: BM25 and Beyond," <em>Foundations
+                    and
+                    Trends in Information Retrieval</em>, vol. 3, no. 4, pp. 333–389, 2009.</li>
+            <li>J. Johnson, M. Douze, and H. Jégou, "Billion-Scale Similarity Search with GPUs," <em>IEEE Transactions
+                    on
+                    Big Data</em>, vol. 7, no. 3, pp. 535–547, 2021.</li>
+            <li>OpenAI, "Text Embedding Models," 2024. [Online]. Available: <a
+                    href="https://platform.openai.com/docs/guides/embeddings">platform.openai.com/docs/guides/embeddings</a>
+            </li>
+            <li>Google DeepMind, "Gemini Embedding Models," 2024. [Online]. Available: <a
+                    href="https://ai.google.dev/gemini-api/docs/embeddings">ai.google.dev/gemini-api/docs/embeddings</a>
+            </li>
+            <li>SQLite Consortium, "SQLite FTS5 Extension," 2024. [Online]. Available: <a
+                    href="https://www.sqlite.org/fts5.html">sqlite.org/fts5.html</a></li>
+            <li>A. Garcia, "sqlite-vec: A SQLite Extension for Vector Search," 2024. [Online]. Available: <a
+                    href="https://github.com/asg017/sqlite-vec">github.com/asg017/sqlite-vec</a></li>
+        </ol>
+
+        <div class="footnote">
+            <p>© 2026 DiNaSoR. Mnemo is released under the MIT License. This paper describes Mnemo v0.0.8. For the
+                latest
+                version, visit <a href="https://github.com/DiNaSoR/Mnemo">github.com/DiNaSoR/Mnemo</a> or install via
+                <code>npx @dinasor/mnemo-cli@latest</code>.
+            </p>
+        </div>
+    </div><!-- /.two-col -->
+
+</body>
+
+</html>
