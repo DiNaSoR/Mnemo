@@ -113,12 +113,20 @@ EOF2
 fi
 
 if grep -q "^## $DATE$" "$JOURNAL"; then
-  awk -v d="$DATE" -v e="$(printf "%b" "$entry")" '
+  entry_file="$JOURNAL.entry.$$"
+  printf "%b\n" "$entry" > "$entry_file"
+  awk -v d="$DATE" -v entry_file="$entry_file" '
+    function print_entry(    line) {
+      while ((getline line < entry_file) > 0) {
+        print line
+      }
+      close(entry_file)
+    }
     BEGIN { in_day=0; done=0 }
     {
       if (in_day == 1 && done == 0 && $0 ~ /^## [0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
         print ""
-        print e
+        print_entry()
         print ""
         done=1
         in_day=0
@@ -131,12 +139,13 @@ if grep -q "^## $DATE$" "$JOURNAL"; then
     END {
       if (done == 0) {
         print ""
-        print e
+        print_entry()
         print ""
       }
     }
   ' "$JOURNAL" > "$JOURNAL.tmp.$$"
   mv "$JOURNAL.tmp.$$" "$JOURNAL"
+  rm -f "$entry_file"
 else
   {
     printf "\n## %s\n\n" "$DATE"
