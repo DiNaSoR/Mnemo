@@ -61,8 +61,8 @@ npx @dinasor/mnemo-cli@latest --force
 
 ```sh
 # Verify memory system
-scripts/memory/rebuild-memory-index.ps1   # Windows
-scripts/memory/rebuild-memory-index.sh    # macOS/Linux
+powershell -File scripts/memory/rebuild-memory-index.ps1   # Windows
+sh ./scripts/memory/rebuild-memory-index.sh                # macOS/Linux
 
 # If vector mode is enabled, restart your IDE and run:
 vector_health
@@ -73,8 +73,8 @@ vector_sync
 
 ## 🧠 Seeding memory for an existing codebase
 
-After installing Mnemo in a project that already has code, use the bundled
-`mnemo-codebase-optimizer` skill to fill memory quickly and accurately.
+After installing Mnemo in a project that already has code, you can optionally use the bundled
+`mnemo-codebase-optimizer` skill to seed Mnemo with project-specific context.
 
 **In Cursor (or any agent that loads `.cursor/skills/`):**
 
@@ -89,15 +89,18 @@ After installing Mnemo in a project that already has code, use the bundled
    @.cursor/skills/mnemo-codebase-optimizer/SKILL.md
    ```
 
-3. The agent will map architecture, ownership, dev workflows, risks, commands,
-   and write optimized `memo.md`, `hot-rules.md`, `active-context.md`, lessons,
-   and a journal summary — then validate retrieval quality.
+3. The agent will scan the repository, write optimized `memo.md`,
+   `hot-rules.md`, `active-context.md`, starter lessons, and a journal summary,
+   then rebuild/lint memory and run retrieval checks.
+
+If you prefer to keep Mnemo empty and seed it manually, skip the skill and edit
+`.mnemo/memory/` yourself.
 
 The skill is installed automatically and lives at:
 
 ```text
 .cursor/skills/mnemo-codebase-optimizer/
-  SKILL.md        ← skill prompt + checklist
+  SKILL.md        ← skill prompt + seeding workflow
   reference.md    ← memory file templates + retrieval queries
 ```
 
@@ -226,11 +229,17 @@ Runner triggers:
 
 scripts/
   memory/
+    rebuild-memory-index.sh
     rebuild-memory-index.ps1
+    lint-memory.sh
     lint-memory.ps1
+    query-memory.sh
     query-memory.ps1
+    add-lesson.sh
     add-lesson.ps1
+    add-journal-entry.sh
     add-journal-entry.ps1
+    clear-active.sh
     clear-active.ps1
     mnemo_vector.py        # vector mode only
     autonomy/              # vector mode only
@@ -240,12 +249,12 @@ scripts/
 
 | Script | What it does |
 |---|---|
-| `rebuild-memory-index.ps1` | Rebuilds lesson/journal indexes and digests |
-| `lint-memory.ps1` | Validates frontmatter, tags, date headers, token budget |
-| `query-memory.ps1` | Searches memory via file search or SQLite FTS (`-UseSqlite`) |
-| `add-lesson.ps1` | Creates next `L-XXX` lesson with normalized tags |
-| `add-journal-entry.ps1` | Adds entry under current date in monthly journal |
-| `clear-active.ps1` | Resets `active-context.md` |
+| `rebuild-memory-index.ps1` / `rebuild-memory-index.sh` | Rebuilds lesson/journal indexes and digests |
+| `lint-memory.ps1` / `lint-memory.sh` | Validates frontmatter, tags, date headers, token budget |
+| `query-memory.ps1` / `query-memory.sh` | Searches memory via file search or SQLite FTS (`-UseSqlite` / `--use-sqlite`) |
+| `add-lesson.ps1` / `add-lesson.sh` | Creates next `L-XXX` lesson with normalized tags |
+| `add-journal-entry.ps1` / `add-journal-entry.sh` | Adds entry under current date in monthly journal |
+| `clear-active.ps1` / `clear-active.sh` | Resets `active-context.md` |
 | `mnemo_vector.py` | Vector MCP server + CLI (`sync`, `search`, `forget`, `health`, `status`) in vector mode |
 
 ## 🔐 Git hooks and API keys
@@ -274,7 +283,7 @@ python3 scripts/memory/mnemo_vector.py health
 ## ✅ Recommended daily workflow
 
 1. Update `.mnemo/memory/active-context.md` at task start.
-2. Search first (`query-memory.ps1`) before opening many files.
+2. Search first (`query-memory.ps1` on Windows / `query-memory.sh` on macOS/Linux) before opening many files.
 3. Use `vector_search` when keyword lookup misses.
 4. At finish: add journal entry, add lesson if needed, rebuild, clear active context.
 

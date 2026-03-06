@@ -22,3 +22,4 @@
 .cursor/mcp.json
 
 __pycache__/
+.playwright-cli/

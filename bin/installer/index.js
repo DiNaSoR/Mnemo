@@ -2,8 +2,7 @@
 /**
  * installer/index.js — Main Mnemo installer orchestrator.
  *
- * This is the unified, cross-platform installer that replaces both
- * memory.ps1 (Windows) and memory_mac.sh (macOS/Linux).
+ * This is the unified, cross-platform installer behind `bin/mnemo.js`.
  *
  * All file creation, bridge setup, vector configuration, and hook
  * installation happens here via modular Node.js code.

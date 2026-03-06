@@ -1,60 +1,66 @@
 [
   {
-    "query": "how to add a new lesson",
-    "description": "Procedural query - should retrieve lessons directory files",
-    "relevant_refs": [
-      "add-lesson.ps1",
-      "lessons/index.md",
-      "lesson.template.md"
-    ]
+    "query": "how to add a new lesson add-lesson.ps1 lesson.template.md",
+    "description": "Procedural flow for creating a lesson",
+    "category": "basic",
+    "difficulty": "easy",
+    "notes": "Should surface add-lesson helper and lesson template references.",
+    "relevant_refs": ["add-lesson.ps1", "lesson.template.md", "lessons/index.md"]
   },
   {
-    "query": "token budget memory size limit",
-    "description": "Core invariant query - should retrieve hot-rules or memo",
-    "relevant_refs": [
-      "hot-rules.md",
-      "memo.md",
-      "index.md"
-    ]
+    "query": "token budget context safety policies token_budget_default_tokens",
+    "description": "Token budgeting policy lookup",
+    "category": "basic",
+    "difficulty": "easy",
+    "notes": "Targets policy and context safety behavior.",
+    "relevant_refs": ["policies.yaml", "context_safety.py"]
   },
   {
-    "query": "IL2CPP crash bug exception",
-    "description": "Error/lesson query - should prefer lessons",
-    "relevant_refs": [
-      "lessons/index.md"
-    ]
+    "query": "authority order hot-rules memo active-context",
+    "description": "Hierarchy and authority behavior",
+    "category": "basic",
+    "difficulty": "easy",
+    "notes": "Core hierarchy should map to hot-rules and memo.",
+    "relevant_refs": ["hot-rules.md", "memo.md", "00-memory-system.mdc"]
   },
   {
-    "query": "authority order lessons override active-context",
-    "description": "Rule query - should find hot-rules or memory system rule",
-    "relevant_refs": [
-      "hot-rules.md",
-      "00-memory-system.mdc"
-    ]
+    "query": "vector search embeddings mnemo_vector.py 01-vector-search.mdc",
+    "description": "Vector layer and semantic retrieval docs",
+    "category": "basic",
+    "difficulty": "easy",
+    "notes": "Should hit the vector tool and its rule file.",
+    "relevant_refs": ["mnemo_vector.py", "01-vector-search.mdc"]
   },
   {
-    "query": "vector sync embeddings semantic search",
-    "description": "Vector layer query",
-    "relevant_refs": [
-      "mnemo_vector.py",
-      "01-vector-search.mdc"
-    ]
+    "query": "rebuild memory index rebuild-memory-index.ps1 query-memory-sqlite.py",
+    "description": "Index rebuild and query scripts",
+    "category": "basic",
+    "difficulty": "medium",
+    "notes": "Looks up scripts related to rebuilding/searching memory.",
+    "relevant_refs": ["rebuild-memory-index.ps1", "query-memory-sqlite.py", "index.md"]
   },
   {
-    "query": "rebuild memory index digest",
-    "description": "Rebuild query - should find rebuild scripts or index files",
-    "relevant_refs": [
-      "index.md",
-      "hot-rules.md"
-    ]
+    "query": "autonomy lifecycle deprecate contradiction lifecycle_engine.py",
+    "description": "Lifecycle contradiction management",
+    "category": "basic",
+    "difficulty": "medium",
+    "notes": "Should return lifecycle runtime implementation.",
+    "relevant_refs": ["lifecycle_engine.py", "runner.py"]
   },
   {
-    "query": "gitignore memory sqlite",
-    "description": "Gitignore query - mentions patterns present in installer",
-    "relevant_refs": [
-      "hot-rules.md",
-      "memo.md",
-      "index.md"
-    ]
+    "query": "entity resolver aliases custom_entities entity_resolver.py",
+    "description": "Entity extraction and aliasing",
+    "category": "basic",
+    "difficulty": "medium",
+    "notes": "Should hit entity resolver and policy config.",
+    "relevant_refs": ["entity_resolver.py", "policies.yaml"]
+  },
+  {
+    "query": "benchmark hit at 3 ndcg benchmark_runner.py",
+    "description": "Benchmark metric implementation",
+    "category": "basic",
+    "difficulty": "medium",
+    "notes": "Finds benchmark test harness.",
+    "relevant_refs": ["benchmark_runner.py", "tests/README.md"]
   }
 ]

@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import statistics
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,29 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 DEFAULT_TOPK_GRID = [3, 5, 8, 12]
 DEFAULT_SYSTEM_TOKENS = 240
 DEFAULT_COMPLETION_TOKENS = 500
+
+
+def _ensure_runtime_paths() -> None:
+    roots = [Path.cwd(), REPO_ROOT]
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        for candidate in (
+            root / "scripts" / "memory",
+            root / "scripts" / "memory" / "installer" / "templates",
+            root / ".mnemo" / "memory" / "scripts",
+            root / ".cursor" / "memory" / "scripts",
+        ):
+            key = str(candidate.resolve()) if candidate.exists() else str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            if candidate.exists():
+                candidates.append(candidate)
+    for p in candidates:
+        p_str = str(p)
+        if p_str not in sys.path:
+            sys.path.insert(0, p_str)
 
 
 def _safe_import_yaml():
@@ -52,7 +76,16 @@ def _load_policy_budgets() -> dict[str, int]:
     Falls back to defaults if policy or parser is unavailable.
     """
     policy_path = REPO_ROOT / "scripts" / "memory" / "installer" / "templates" / "autonomy" / "policies.yaml"
-    defaults = {"default": 6000, "extended": 12000}  # chars
+    defaults = {"default": 1500, "extended": 3000}
+
+    _ensure_runtime_paths()
+    try:
+        from autonomy.token_counter import load_token_budget_config  # type: ignore
+
+        cfg = load_token_budget_config(policy_path=policy_path)
+        return {"default": int(cfg.default_tokens), "extended": int(cfg.extended_tokens)}
+    except Exception:
+        pass
 
     if not policy_path.exists():
         return defaults
@@ -63,12 +96,18 @@ def _load_policy_budgets() -> dict[str, int]:
 
     try:
         data = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
-        d = int(data.get("token_budget_default", defaults["default"]))
-        e = int(data.get("token_budget_extended", defaults["extended"]))
+        d = data.get("token_budget_default_tokens")
+        e = data.get("token_budget_extended_tokens")
+        if d is None or e is None:
+            # Legacy char budget support.
+            d = int(math.ceil(int(data.get("token_budget_default", defaults["default"] * 4)) / 4))
+            e = int(math.ceil(int(data.get("token_budget_extended", defaults["extended"] * 4)) / 4))
+        else:
+            d = int(d)
+            e = int(e)
         return {"default": d, "extended": e}
     except Exception:
         return defaults
-
 
 class TokenCounter:
     """
@@ -79,6 +118,21 @@ class TokenCounter:
     """
 
     def __init__(self, provider: str, model: str):
+        _ensure_runtime_paths()
+        self._delegate = None
+        try:
+            from autonomy.token_counter import TokenCounter as SharedTokenCounter  # type: ignore
+
+            self._delegate = SharedTokenCounter(provider=provider, model=model)
+            self.provider = provider.lower().strip()
+            self.model = model
+            self.mode = self._delegate.mode
+            self._tiktoken_enc = None
+            self._gemini_tokenizer = None
+            return
+        except Exception:
+            pass
+
         self.provider = provider.lower().strip()
         self.model = model
         self.mode = "chars/4"
@@ -113,6 +167,8 @@ class TokenCounter:
             self._gemini_tokenizer = None
 
     def count(self, text: str) -> int:
+        if self._delegate is not None:
+            return int(self._delegate.count(text))
         if not text:
             return 0
 
@@ -141,7 +197,7 @@ class TokenCounter:
 class ScenarioResult:
     top_k: int
     budget_name: str
-    budget_chars: int
+    budget_tokens: int
     queries_evaluated: int
     tokenizer_mode: str
     avg_query_tokens: float
@@ -160,7 +216,7 @@ class ScenarioResult:
         return {
             "top_k": self.top_k,
             "budget_name": self.budget_name,
-            "budget_chars": self.budget_chars,
+            "budget_tokens": self.budget_tokens,
             "queries_evaluated": self.queries_evaluated,
             "tokenizer_mode": self.tokenizer_mode,
             "avg_query_tokens": round(self.avg_query_tokens, 2),
@@ -198,12 +254,12 @@ def _parse_topk_grid(raw: str) -> list[int]:
     return sorted(set(out)) or DEFAULT_TOPK_GRID
 
 
-def _pack_with_budget(results: list[dict], token_counter: TokenCounter, budget_chars: int) -> tuple[str, int, int]:
+def _pack_with_budget(results: list[dict], token_counter: TokenCounter, budget_tokens: int) -> tuple[str, int, int]:
     """
     Build packed retrieval context with budget truncation.
     Returns: (packed_text, included_count, dropped_count)
     """
-    used_chars = 0
+    used_tokens = 0
     included = 0
     blocks: list[str] = []
 
@@ -213,11 +269,11 @@ def _pack_with_budget(results: list[dict], token_counter: TokenCounter, budget_c
         if not content:
             continue
         block = f"<!-- {ref} -->\n{content}\n"
-        block_len = len(block)
-        if used_chars + block_len > budget_chars:
+        block_tokens = token_counter.count(block)
+        if used_tokens + block_tokens > budget_tokens:
             continue
         blocks.append(block)
-        used_chars += block_len
+        used_tokens += block_tokens
         included += 1
 
     dropped = max(0, len(results) - included)
@@ -281,7 +337,7 @@ def simulate(args: argparse.Namespace) -> dict:
     per_query_rows: list[dict] = []
 
     for top_k in topk_grid:
-        for budget_name, budget_chars in budgets.items():
+        for budget_name, budget_tokens in budgets.items():
             query_tokens_arr: list[float] = []
             candidate_tokens_arr: list[float] = []
             packed_tokens_arr: list[float] = []
@@ -310,7 +366,7 @@ def simulate(args: argparse.Namespace) -> dict:
                 candidate_tokens = sum(token_counter.count(str(r.get("content", ""))) for r in candidate_results)
 
                 packed_text, included, dropped = _pack_with_budget(
-                    candidate_results, token_counter=token_counter, budget_chars=budget_chars
+                    candidate_results, token_counter=token_counter, budget_tokens=budget_tokens
                 )
                 query_tokens = token_counter.count(query)
                 packed_tokens = token_counter.count(packed_text)
@@ -337,7 +393,7 @@ def simulate(args: argparse.Namespace) -> dict:
                         "query": query,
                         "top_k": top_k,
                         "budget_name": budget_name,
-                        "budget_chars": budget_chars,
+                        "budget_tokens": budget_tokens,
                         "query_tokens": query_tokens,
                         "candidate_tokens": candidate_tokens,
                         "packed_tokens": packed_tokens,
@@ -355,7 +411,7 @@ def simulate(args: argparse.Namespace) -> dict:
             scenarios.append(ScenarioResult(
                 top_k=top_k,
                 budget_name=budget_name,
-                budget_chars=budget_chars,
+                budget_tokens=budget_tokens,
                 queries_evaluated=len(prompt_tokens_arr),
                 tokenizer_mode=token_counter.mode,
                 avg_query_tokens=statistics.mean(query_tokens_arr),
@@ -371,7 +427,7 @@ def simulate(args: argparse.Namespace) -> dict:
                 p95_estimated_usd=_percentile(usd_arr, 95),
             ))
 
-    scenarios_sorted = sorted(scenarios, key=lambda s: (s.top_k, s.budget_chars))
+    scenarios_sorted = sorted(scenarios, key=lambda s: (s.top_k, s.budget_tokens))
     payload = {
         "config": {
             "fixtures": str(args.fixtures),
@@ -380,7 +436,7 @@ def simulate(args: argparse.Namespace) -> dict:
             "model": args.model,
             "tokenizer_mode": token_counter.mode,
             "topk_grid": topk_grid,
-            "budgets_chars": budgets,
+            "budgets_tokens": budgets,
             "system_tokens": args.system_tokens,
             "completion_tokens": args.completion_tokens,
             "input_price_per_1m": args.input_price_per_1m,

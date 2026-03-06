@@ -19,10 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from autonomy.contradiction import compare_texts
 from autonomy.schema import get_db
 from autonomy.ingest_pipeline import MemoryUnit
+from autonomy.token_counter import resolve_policy_path
 
-DEPRECATION_SIMILARITY_THRESHOLD = 0.85
 PROMOTE_STABILITY_CYCLES = 3  # fact must appear N cycles before lesson promotion
 NOOP_HASH_MATCH = True  # if content_hash unchanged, always NOOP
 
@@ -34,6 +35,7 @@ class LifecycleDecision:
     fact_id: Optional[str]
     reason: str
     confidence: float = 1.0
+    contradiction_method: Optional[str] = None
 
 
 def _extract_key_facts(content: str, memory_type: str) -> list[str]:
@@ -65,15 +67,6 @@ def _extract_key_facts(content: str, memory_type: str) -> list[str]:
     return facts[:20]  # cap to prevent runaway
 
 
-def _simple_similarity(a: str, b: str) -> float:
-    """Token Jaccard similarity for contradiction detection (no embeddings needed)."""
-    ta = set(re.findall(r"\w+", a.lower()))
-    tb = set(re.findall(r"\w+", b.lower()))
-    if not ta or not tb:
-        return 0.0
-    return len(ta & tb) / len(ta | tb)
-
-
 def _resolve_lessons_dir(repo_root: Path) -> Path:
     override = os.getenv("MNEMO_MEMORY_ROOT", "").strip()
     if override:
@@ -90,8 +83,64 @@ def _resolve_lessons_dir(repo_root: Path) -> Path:
 
 
 class LifecycleEngine:
-    def __init__(self, db: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self,
+        db: Optional[sqlite3.Connection] = None,
+        use_embedding_contradictions: Optional[bool] = None,
+        contradiction_anchor_threshold: Optional[float] = None,
+        contradiction_embed_threshold: Optional[float] = None,
+        contradiction_mode: Optional[str] = None,
+        contradiction_min_frame_confidence: Optional[float] = None,
+        require_embedding_confirmation: Optional[bool] = None,
+    ):
         self.db = db or get_db()
+        policy = self._load_policy()
+        contradiction_cfg = policy.get("contradiction", {}) if isinstance(policy, dict) else {}
+        if not isinstance(contradiction_cfg, dict):
+            contradiction_cfg = {}
+
+        if use_embedding_contradictions is None:
+            self.use_embedding_contradictions = bool(contradiction_cfg.get("use_embeddings", False))
+        else:
+            self.use_embedding_contradictions = bool(use_embedding_contradictions)
+        self.contradiction_anchor_threshold = (
+            float(contradiction_anchor_threshold)
+            if contradiction_anchor_threshold is not None
+            else float(contradiction_cfg.get("anchor_similarity_threshold", 0.45))
+        )
+        self.contradiction_embed_threshold = (
+            float(contradiction_embed_threshold)
+            if contradiction_embed_threshold is not None
+            else float(contradiction_cfg.get("embedding_similarity_threshold", 0.72))
+        )
+        self.contradiction_mode = (
+            str(contradiction_mode).strip().lower()
+            if contradiction_mode is not None
+            else str(contradiction_cfg.get("mode", "hybrid")).strip().lower()
+        )
+        self.contradiction_min_frame_confidence = (
+            float(contradiction_min_frame_confidence)
+            if contradiction_min_frame_confidence is not None
+            else float(contradiction_cfg.get("min_frame_confidence", 0.55))
+        )
+        if require_embedding_confirmation is None:
+            self.require_embedding_confirmation = bool(contradiction_cfg.get("require_embedding_confirmation", False))
+        else:
+            self.require_embedding_confirmation = bool(require_embedding_confirmation)
+
+    def _load_policy(self) -> dict:
+        policy_path = resolve_policy_path()
+        if policy_path is None or not policy_path.exists():
+            return {}
+        try:
+            import yaml  # type: ignore
+        except Exception:
+            return {}
+        try:
+            payload = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
 
     def process(self, unit: MemoryUnit) -> LifecycleDecision:
         """
@@ -121,15 +170,16 @@ class LifecycleEngine:
 
         # Check for contradiction / supersession in global facts
         contradictions = self._detect_contradictions(facts)
-        for old_fact_id, old_fact_text in contradictions:
+        for old_fact_id, old_fact_text, contradiction_method in contradictions:
             self.db.execute(
                 "UPDATE facts SET status='deprecated', updated_at=unixepoch('now') WHERE fact_id=?",
                 (old_fact_id,),
             )
             dep_decision = LifecycleDecision(
                 "DEPRECATE", unit.unit_id, old_fact_id,
-                reason=f"superseded_by_unit:{unit.unit_id}",
+                reason=f"superseded_by_unit:{unit.unit_id}:{contradiction_method}",
                 confidence=0.8,
+                contradiction_method=contradiction_method,
             )
             self._log_event(dep_decision)
 
@@ -155,34 +205,38 @@ class LifecycleEngine:
         self.db.commit()
         return decision
 
-    def _detect_contradictions(self, new_facts: list[str]) -> list[tuple[str, str]]:
+    def _detect_contradictions(self, new_facts: list[str]) -> list[tuple[str, str, str]]:
         """
         Find existing active facts that are semantically contradicted by new_facts.
-        Uses token Jaccard with high threshold — low false positive rate is more important than recall.
+        Uses polarity-aware shared-anchor contradiction matching.
+        Optional embedding enhancement applies when dependency is installed and enabled.
         Bounded to most recent 200 facts to prevent full-table scans at scale.
         """
-        contradicted: list[tuple[str, str]] = []
+        contradicted: list[tuple[str, str, str]] = []
         existing = self.db.execute(
             "SELECT fact_id, canonical_fact FROM facts WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200"
         ).fetchall()
 
-        contradiction_patterns = [
-            (r"\bdo\s+not\b", r"\bdo\b"),
-            (r"\bnever\b", r"\balways\b"),
-            (r"\bdisabled\b", r"\benabled\b"),
-        ]
-
+        seen_fact_ids: set[str] = set()
         for ef in existing:
             ef_text = ef["canonical_fact"]
             for new_fact in new_facts:
-                sim = _simple_similarity(new_fact, ef_text)
-                if sim >= DEPRECATION_SIMILARITY_THRESHOLD:
-                    for pat_a, pat_b in contradiction_patterns:
-                        a_in_new = bool(re.search(pat_a, new_fact, re.I))
-                        b_in_old = bool(re.search(pat_b, ef_text, re.I))
-                        if a_in_new and b_in_old:
-                            contradicted.append((ef["fact_id"], ef_text))
-                            break
+                match = compare_texts(
+                    new_fact,
+                    ef_text,
+                    use_embeddings=self.use_embedding_contradictions,
+                    anchor_threshold=self.contradiction_anchor_threshold,
+                    embed_threshold=self.contradiction_embed_threshold,
+                    mode=self.contradiction_mode,
+                    min_frame_confidence=self.contradiction_min_frame_confidence,
+                    require_embedding_confirmation=self.require_embedding_confirmation,
+                )
+                if match is None:
+                    continue
+                if ef["fact_id"] in seen_fact_ids:
+                    continue
+                seen_fact_ids.add(ef["fact_id"])
+                contradicted.append((ef["fact_id"], ef_text, match.method))
         return contradicted
 
     def _log_event(self, decision: LifecycleDecision) -> None:

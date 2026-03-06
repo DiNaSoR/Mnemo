@@ -63,17 +63,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "18"
-      - name: Run Node.js installer test
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
         shell: pwsh
         run: |
-          $dest = Join-Path $env:RUNNER_TEMP "mnemo-test"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          node bin/mnemo.js --yes --repo-root $dest --project-name CITest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "$dest/.mnemo/memory/hot-rules.md")) {
-            Write-Error "Core files missing after install"
-            exit 1
-          }
+          python -m pip install --upgrade pip
+          python -m pip install --quiet "sqlite-vec>=0.1.1" "mcp[cli]>=1.2.0,<2.0" "pyyaml>=6.0"
+      - name: Run Windows regression suite
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
+      - name: Run Windows modularization guard
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
 
   test-posix:
     name: Test POSIX (${{ matrix.os }})
@@ -129,10 +132,91 @@ jobs:
           fi
           echo "All Python files pass syntax check"
 
+  retrieval-quality:
+    name: Retrieval quality + evaluation
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: pip install --quiet "sqlite-vec>=0.1.1" "mcp[cli]>=1.2.0,<2.0" "pyyaml>=6.0"
+
+      - name: Install Mnemo to temp dir
+        run: |
+          mkdir -p /tmp/mnemo-release-bench
+          node bin/mnemo.js --yes --repo-root /tmp/mnemo-release-bench --project-name ReleaseBench
+
+      - name: Run benchmark
+        working-directory: /tmp/mnemo-release-bench
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/retrieval/benchmark_runner.py \
+            --fixtures $GITHUB_WORKSPACE/tests/retrieval/fixtures/
+
+      - name: Run benchmark ablation
+        working-directory: /tmp/mnemo-release-bench
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/retrieval/benchmark_runner.py \
+            --fixtures $GITHUB_WORKSPACE/tests/retrieval/fixtures/ \
+            --ablation
+
+      - name: Run contradiction evaluation
+        working-directory: /tmp/mnemo-release-bench
+        run: |
+          mkdir -p /tmp/mnemo-release-reports
+          python3 $GITHUB_WORKSPACE/tests/retrieval/eval_contradiction.py \
+            --by-category \
+            --report-json /tmp/mnemo-release-reports/contradiction.json \
+            --report-csv /tmp/mnemo-release-reports/contradiction.csv
+
+      - name: Run weight sensitivity sweep
+        working-directory: /tmp/mnemo-release-bench
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/retrieval/weight_sweep.py \
+            --curve-json /tmp/mnemo-release-reports/weight_curve.json \
+            --curve-csv /tmp/mnemo-release-reports/weight_curve.csv
+
+      - name: Upload release evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-eval-${{ github.run_id }}
+          path: /tmp/mnemo-release-reports
+          retention-days: 30
+
+  package-smoke:
+    name: Packaged npm tarball smoke
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+
+      - name: Build tarball and verify packed install
+        run: |
+          pack_json="$(npm pack --json)"
+          tarball="$(node -e "const data = JSON.parse(process.argv[1]); console.log(data[0].filename);" "$pack_json")"
+          mkdir -p /tmp/mnemo-release-pack /tmp/mnemo-release-extract
+          tar -xzf "$tarball" -C /tmp/mnemo-release-extract
+          node /tmp/mnemo-release-extract/package/bin/mnemo.js --yes --repo-root /tmp/mnemo-release-pack --project-name ReleasePack
+          test -f /tmp/mnemo-release-pack/.mnemo/memory/memo.md
+          test -f /tmp/mnemo-release-pack/.githooks/pre-commit
+          test -f /tmp/mnemo-release-pack/scripts/memory/add-lesson.sh
+          test -f /tmp/mnemo-release-pack/scripts/memory/query-memory.sh
+          test -f /tmp/mnemo-release-pack/scripts/memory/customization.md
+
   # ─── Publish GitHub release ────────────────────────────────────────────────
   publish:
     name: Publish release
-    needs: [preflight, test-windows, test-posix, autonomy-syntax]
+    needs: [preflight, test-windows, test-posix, autonomy-syntax, retrieval-quality, package-smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -188,7 +272,7 @@ jobs:
   # ─── Publish npm package ────────────────────────────────────────────────────
   publish-npm:
     name: Publish npm package (@dinasor/mnemo-cli)
-    needs: [preflight, test-windows, test-posix, autonomy-syntax, publish]
+    needs: [preflight, test-windows, test-posix, autonomy-syntax, retrieval-quality, package-smoke, publish]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -236,6 +320,19 @@ jobs:
 
       - name: Verify npm package contents
         run: npm pack --dry-run
+
+      - name: Verify packed tarball installs cleanly
+        run: |
+          pack_json="$(npm pack --json)"
+          tarball="$(node -e "const data = JSON.parse(process.argv[1]); console.log(data[0].filename);" "$pack_json")"
+          mkdir -p /tmp/mnemo-publish-pack /tmp/mnemo-publish-extract
+          tar -xzf "$tarball" -C /tmp/mnemo-publish-extract
+          node /tmp/mnemo-publish-extract/package/bin/mnemo.js --yes --repo-root /tmp/mnemo-publish-pack --project-name PublishPack
+          test -f /tmp/mnemo-publish-pack/.mnemo/memory/memo.md
+          test -f /tmp/mnemo-publish-pack/.githooks/pre-commit
+          test -f /tmp/mnemo-publish-pack/scripts/memory/add-lesson.sh
+          test -f /tmp/mnemo-publish-pack/scripts/memory/query-memory.sh
+          test -f /tmp/mnemo-publish-pack/scripts/memory/customization.md
 
       - name: Publish package to npm
         env:

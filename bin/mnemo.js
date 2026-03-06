@@ -506,7 +506,7 @@ async function main() {
     if (vectorMode) {
       process.stdout.write(`  ${ARROW} Open your IDE, restart MCP, and run ${bold("vector_health")} → ${bold("vector_sync")}\n`);
     }
-    process.stdout.write(`  ${ARROW} Use the ${bold("mnemo-codebase-optimizer")} skill to quickly seed memory for this codebase\n`);
+    process.stdout.write(`  ${ARROW} Optional: use the ${bold("mnemo-codebase-optimizer")} skill to seed Mnemo for this codebase\n`);
     process.stdout.write(`     ${DI}.cursor/skills/mnemo-codebase-optimizer/SKILL.md${R}\n`);
     process.stdout.write("\n");
   }

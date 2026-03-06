@@ -50,7 +50,7 @@ cd Mnemo
 
 # Run the installer in a temp directory to verify it works
 mkdir ../mnemo-test
-powershell -ExecutionPolicy Bypass -File .\memory.ps1 -RepoRoot ..\mnemo-test -ProjectName TestProject
+node .\bin\mnemo.js --yes --repo-root ..\mnemo-test --project-name TestProject
 
 # Run linter on the result
 powershell -ExecutionPolicy Bypass -File ..\mnemo-test\scripts\memory\lint-memory.ps1
@@ -60,11 +60,11 @@ macOS / Linux:
 
 ```sh
 mkdir ../mnemo-test
-sh ./memory_mac.sh --repo-root ../mnemo-test --project-name TestProject
+node ./bin/mnemo.js --yes --repo-root ../mnemo-test --project-name TestProject
 sh ../mnemo-test/scripts/memory/lint-memory.sh
 ```
 
-No extra tooling is required beyond PowerShell 5.1+ (Windows) or a POSIX shell (macOS/Linux).
+No extra tooling is required beyond Node.js 18+. PowerShell 5.1+ (Windows) and a POSIX shell (macOS/Linux) are only needed if you want to run the platform-specific helper scripts after install.
 
 ### Optional: Python for SQLite + vector tests
 
@@ -80,12 +80,13 @@ python3 -m pip install openai sqlite-vec "mcp[cli]>=1.2.0,<2.0"
    ```
    Branch naming: `fix/`, `feat/`, `docs/`, `refactor/`, `ci/`, `test/`
 
-2. **Edit** the relevant file(s). The two primary sources of truth are:
-   - [`memory.ps1`](memory.ps1) — Windows installer (PowerShell)
-   - [`memory_mac.sh`](memory_mac.sh) — macOS/Linux installer (POSIX sh)
+2. **Edit** the relevant file(s). The primary installer sources of truth are:
+   - [`bin/mnemo.js`](bin/mnemo.js) — CLI entry point + wizard
+   - [`bin/installer/`](bin/installer/) — unified installer modules
+   - [`scripts/memory/installer/templates/`](scripts/memory/installer/templates/) — generated helper/template content
    - [`VERSION`](VERSION) — single version source
 
-   If you change behaviour in one installer, you must apply the equivalent change in the other.
+   If you change generated installer output, update the corresponding templates and helper scripts across supported platforms.
 
 3. **Test** your change locally (see [Development Setup](#development-setup)).
 
@@ -112,7 +113,7 @@ python3 -m pip install openai sqlite-vec "mcp[cli]>=1.2.0,<2.0"
 
 ## Versioning Policy
 
-Mnemo follows [Semantic Versioning](https://semver.org/). The single source of truth for the version is the [`VERSION`](VERSION) file at repo root. Both installers read this file and embed the version into generated output.
+Mnemo follows [Semantic Versioning](https://semver.org/). The single source of truth for the version is the [`VERSION`](VERSION) file at repo root. The unified Node installer reads this file and embeds the version into generated output.
 
 Breaking changes at the CLI parameter level are avoided within a major version. Additions to generated file templates are considered non-breaking.
 
@@ -120,9 +121,8 @@ Breaking changes at the CLI parameter level are avoided within a major version. 
 
 | Platform | Installer | Min version |
 |----------|-----------|-------------|
-| Windows | `memory.ps1` | PowerShell 5.1 |
-| Windows | `memory.ps1` | PowerShell 7+ (`pwsh`) |
-| macOS | `memory_mac.sh` | macOS 12+ (Monterey), `/bin/sh` |
-| Linux | `memory_mac.sh` | bash 4+ or dash |
+| Windows | `node bin/mnemo.js --yes --repo-root ... --project-name ...` | Node.js 18+ |
+| macOS | `node bin/mnemo.js --yes --repo-root ... --project-name ...` | Node.js 18+ |
+| Linux | `node bin/mnemo.js --yes --repo-root ... --project-name ...` | Node.js 18+ |
 
 Python is optional (SQLite index + vector layer). Minimum Python 3.9 (SQLite), 3.10+ (vector mode).

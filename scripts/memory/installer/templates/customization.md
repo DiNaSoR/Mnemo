@@ -1,6 +1,6 @@
 # Mnemo Memory Customization Prompt (paste into an AI)
 
-You are an AI coding agent. Your task is to **customize the Mnemo memory system** created by running `memory.ps1` in the root of THIS repository.
+You are an AI coding agent. Your task is to **customize the Mnemo memory system** created by running the Mnemo installer in the root of THIS repository.
 
 ## Non-negotiable rules
 

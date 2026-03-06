@@ -13,10 +13,12 @@ import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from autonomy.schema import get_db
 from autonomy.ingest_pipeline import MemoryUnit
+from autonomy.token_counter import resolve_policy_path
 
 ALIAS_MERGE_THRESHOLD = 0.85  # confidence required to merge aliases
 ENTITY_CONFIDENCE_DECAY = 0.02  # decay per cycle without reinforcement
@@ -31,7 +33,38 @@ class Entity:
     confidence: float
 
 
-def _extract_entities_from_text(content: str, source_ref: str) -> list[tuple[str, str]]:
+_ENTITY_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "these",
+        "those",
+        "with",
+        "from",
+        "into",
+        "about",
+        "after",
+        "before",
+        "where",
+        "there",
+        "their",
+        "which",
+        "when",
+        "must",
+        "should",
+        "could",
+        "would",
+        "true",
+        "false",
+    }
+)
+
+
+def _extract_entities_from_text(
+    content: str,
+    source_ref: str,
+    custom_entities: Optional[list[tuple[str, str, list[str]]]] = None,
+) -> list[tuple[str, str]]:
     """
     Heuristic entity extraction from markdown content.
     Returns list of (entity_name, entity_type) tuples.
@@ -61,19 +94,118 @@ def _extract_entities_from_text(content: str, source_ref: str) -> list[tuple[str
     for m in re.finditer(r"`([a-z][a-z0-9_]{3,})\(\)`", content):
         entities.append((m.group(1), "function"))
 
+    # Repeated snake_case identifiers (bare; 3+ mentions)
+    snake_freq: dict[str, int] = {}
+    for name in re.findall(r"\b([a-z][a-z0-9_]{2,})\b", content):
+        if "_" not in name:
+            continue
+        if name in _ENTITY_STOPWORDS:
+            continue
+        snake_freq[name] = snake_freq.get(name, 0) + 1
+    for name, count in snake_freq.items():
+        if count >= 3:
+            entities.append((name, "identifier"))
+
+    # Hyphenated package/tool names (vue-router, openapi-schema, etc.)
+    for m in re.finditer(r"\b([a-z0-9]+(?:-[a-z0-9]+)+)\b", content):
+        name = m.group(1)
+        if len(name) >= 5:
+            entities.append((name, "package"))
+
+    # Import statements: lower-case modules (numpy, fastapi, sqlalchemy, etc.)
+    for m in re.finditer(r"^\s*(?:from|import)\s+([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)", content, re.MULTILINE):
+        base = m.group(1).split(".", 1)[0]
+        if base and base not in _ENTITY_STOPWORDS and len(base) >= 3:
+            entities.append((base, "module"))
+
+    # Common uppercase abbreviations (DB, API, HTTP, SDK, etc.)
+    abbr_freq: dict[str, int] = {}
+    for abbr in re.findall(r"\b([A-Z]{2,8})\b", content):
+        if abbr in {"TODO", "NOTE"}:
+            continue
+        abbr_freq[abbr] = abbr_freq.get(abbr, 0) + 1
+    for abbr, count in abbr_freq.items():
+        if count >= 2:
+            entities.append((abbr, "abbreviation"))
+
+    # Policy-defined custom entities and aliases.
+    if custom_entities:
+        lowered = content.lower()
+        for canonical_name, entity_type, aliases in custom_entities:
+            candidates = [canonical_name] + aliases
+            for raw in candidates:
+                probe = raw.strip()
+                if not probe:
+                    continue
+                # Word-boundary when possible, otherwise substring fallback.
+                pattern = rf"(?<!\w){re.escape(probe.lower())}(?!\w)"
+                if re.search(pattern, lowered):
+                    entities.append((canonical_name, entity_type))
+                    break
+
     return list(set(entities))[:30]  # deduplicate + cap
 
 
 class EntityResolver:
     def __init__(self, db: Optional[sqlite3.Connection] = None):
         self.db = db or get_db()
+        self.custom_entities = self._load_custom_entities()
+
+    def _safe_yaml_load(self, path: Optional[Path]) -> dict:
+        if path is None or not path.exists():
+            return {}
+        try:
+            import yaml  # type: ignore
+        except Exception:
+            return {}
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def _load_custom_entities(self) -> list[tuple[str, str, list[str]]]:
+        policy = self._safe_yaml_load(resolve_policy_path())
+        raw = policy.get("custom_entities", []) if isinstance(policy, dict) else []
+        out: list[tuple[str, str, list[str]]] = []
+
+        if isinstance(raw, dict):
+            for name, config in raw.items():
+                if not name:
+                    continue
+                if isinstance(config, str):
+                    out.append((name, config, []))
+                    continue
+                if isinstance(config, dict):
+                    entity_type = str(config.get("type", "custom"))
+                    aliases = [str(a) for a in config.get("aliases", []) if str(a).strip()]
+                    out.append((name, entity_type, aliases))
+            return out
+
+        if not isinstance(raw, list):
+            return out
+
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            if not name:
+                continue
+            entity_type = str(item.get("type", "custom")).strip() or "custom"
+            aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
+            out.append((name, entity_type, aliases))
+        return out
 
     def resolve(self, unit: MemoryUnit) -> list[str]:
         """
         Extract entities from unit content, resolve/create IDs, update unit.
         Returns list of entity_ids assigned to this unit.
         """
-        raw_entities = _extract_entities_from_text(unit.content, unit.source_ref)
+        raw_entities = _extract_entities_from_text(
+            unit.content,
+            unit.source_ref,
+            custom_entities=self.custom_entities,
+        )
         entity_ids: list[str] = []
 
         for entity_name, entity_type in raw_entities:

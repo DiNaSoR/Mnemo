@@ -41,19 +41,46 @@ deprecation_confidence_threshold: 0.8
 # Entity resolution: minimum Jaccard similarity to merge an alias
 alias_merge_threshold: 0.85
 
+# Optional project-specific entity dictionary.
+# Supported formats:
+# custom_entities:
+#   - name: "FastAPI"
+#     type: "module"
+#     aliases: ["fastapi", "fast-api"]
+#   NumPy:
+#     type: "module"
+#     aliases: ["numpy"]
+custom_entities: []
+
 # Lesson promotion: minimum fact confidence to auto-promote to lesson
 lesson_promotion_threshold: 0.95
 
 # Retrieval safety: minimum final_score for results to appear in context packs
 min_retrieval_score: 0.2
 
-# Token budgets (in characters, ~4 chars per token)
+# Contradiction detector tuning
+contradiction:
+  # mode: predicate (strict frames), hybrid (frames + heuristic fallback), heuristic (legacy-style cues)
+  mode: hybrid
+  # Minimum confidence required from both extracted fact frames before predicate checks apply
+  min_frame_confidence: 0.55
+  # If true and embeddings are enabled, contradiction match requires embedding similarity threshold pass
+  require_embedding_confirmation: false
+  use_embeddings: false
+  anchor_similarity_threshold: 0.45
+  embedding_similarity_threshold: 0.72
+
+# Token budgets (preferred keys are *_tokens)
+token_budget_default_tokens: 1500
+token_budget_extended_tokens: 3000
+
+# Legacy char budgets kept for backward compatibility (~4 chars/token)
 token_budget_default: 6000
 token_budget_extended: 12000
 
 # Benchmark thresholds (used by CI quality gates)
 benchmark:
-  min_hit_at_3: 0.7
-  min_ndcg_at_5: 0.65
+  min_hit_at_3: 0.75
+  min_ndcg_at_5: 0.68
   max_p95_latency_ms: 2000
   max_token_cost_per_query: 0.005

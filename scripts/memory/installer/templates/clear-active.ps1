@@ -31,7 +31,7 @@ $Template = @"
 Priority: this overrides older journal history *for this session only*.
 
 CLEAR this file when the task is done:
-- Run ``scripts/memory/clear-active.ps1``
+- Run ``scripts/memory/clear-active.sh`` or ``scripts/memory/clear-active.ps1``
 
 ## Current Goal
 -

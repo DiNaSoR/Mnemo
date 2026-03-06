@@ -1,267 +1,181 @@
 ---
 name: mnemo-codebase-optimizer
-description: Seeds high-signal Mnemo memory for any codebase — maps architecture, ownership, workflows, risks, and commands, then writes optimized memo/hot-rules/active-context/lessons/journal and validates retrieval quality. Use when a user installs Mnemo on a new or existing repo and needs to initialize memory.
+description: Optional post-install Mnemo skill that scans the current repository, fills `.mnemo/memory/*` with high-signal project context, and validates that future retrieval will work.
 ---
 
 # Mnemo Codebase Optimizer
 
 ## Purpose
 
-Fresh Mnemo installs create the directory structure but leave all memory files empty.
-This skill rapidly fills them with high-signal, retrieval-optimized content so the AI agent can start working effectively immediately.
+Use this skill after Mnemo is installed in a repository when you want the agent to seed Mnemo with project-specific context.
+It should gather facts about the current codebase, write clean memory files under `.mnemo/memory/`, run the Mnemo helper scripts, and leave the repo with retrievable project knowledge.
 
-**When to use:** right after `npx @dinasor/mnemo-cli@latest` completes on a project.
+## Do Not Use This Skill When
 
-## Quick Start
+- You want to keep Mnemo empty and seed memory manually.
+- The repository is still too incomplete to describe meaningfully.
+- Mnemo is not installed yet.
+
+## Success Criteria
+
+The skill is done only when all of the following are true:
+
+1. `.mnemo/memory/hot-rules.md`, `memo.md`, and `active-context.md` reflect the current repository.
+2. Starter lessons and one journal entry exist if meaningful project facts were discovered.
+3. `scripts/memory/rebuild-memory-index.*` and `scripts/memory/lint-memory.*` were run successfully.
+4. Retrieval checks were performed and obvious misses were corrected.
+5. `active-context.md` is cleared before finishing.
+
+## Confirm Mnemo Install First
+
+Verify these paths exist before writing anything:
+
+| Path | Purpose |
+|---|---|
+| `.mnemo/memory/` | Canonical Mnemo memory store |
+| `.mnemo/rules/cursor/` | Cursor rule source |
+| `.mnemo/rules/agent/` | Agent rule source |
+| `.cursor/memory/` | Bridge to `.mnemo/memory/` |
+| `.cursor/rules/` | Bridge to `.mnemo/rules/cursor/` |
+| `.agent/rules/` | Bridge to `.mnemo/rules/agent/` |
+| `scripts/memory/` | Mnemo helper scripts |
+
+If they are missing, stop and tell the user to install Mnemo first.
+
+> Always edit `.mnemo/memory/*` directly. Treat `.cursor/memory/*` as a bridge, not the source of truth.
+
+## Execution Order
 
 Keep one step `in_progress` at a time:
 
 ```text
 Memory Seeding Progress
-- [ ] 1) Confirm Mnemo install + understand paths
-- [ ] 2) Scan codebase — architecture, ownership, boundaries
-- [ ] 3) Extract runbook commands + dev workflows
-- [ ] 4) Write core memory files (hot-rules → memo → active-context)
-- [ ] 5) Seed starter lessons + initial journal entry
-- [ ] 6) Rebuild indexes + lint + optional vector sync
-- [ ] 7) Validate retrieval quality and refine
-- [ ] 8) Clear active-context (seeding is done)
+- [ ] 1) Confirm Mnemo install and current repo shape
+- [ ] 2) Scan architecture, entrypoints, ownership, and workflows
+- [ ] 3) Capture concrete runbook commands
+- [ ] 4) Write hot-rules.md, memo.md, and active-context.md
+- [ ] 5) Seed starter lessons and one journal entry if warranted
+- [ ] 6) Rebuild indexes, lint memory, and optionally run vector checks
+- [ ] 7) Run retrieval checks and tighten weak sections
+- [ ] 8) Clear active-context.md and report results
 ```
 
-## 1) Confirm Mnemo Install
+## What to Collect
 
-Verify these paths exist:
+Collect only high-signal repository truth:
 
-| Path | Purpose |
-|---|---|
-| `.mnemo/memory/` | Canonical memory store |
-| `.mnemo/rules/cursor/` | Cursor IDE rules |
-| `.mnemo/rules/agent/` | Agent rules (Antigravity, Codex, etc.) |
-| `.cursor/memory/` | Bridge → `.mnemo/memory/` |
-| `.cursor/rules/` | Bridge → `.mnemo/rules/cursor/` |
-| `.agent/rules/` | Bridge → `.mnemo/rules/agent/` |
-| `scripts/memory/` | Helper scripts |
+- project purpose and primary user outcomes
+- runtime entrypoints and module boundaries
+- ownership map by directory or subsystem
+- data contracts, schemas, or API surfaces
+- build, test, lint, release, and debugging commands
+- major constraints, invariants, and known risks
+- setup pitfalls and repeated failure patterns worth turning into lessons
 
-Also read:
-- `.mnemo/memory/tag-vocabulary.md` — use these tags for lessons (don't invent new ones)
-- `.mnemo/memory/regression-checklist.md` — reference this for quality gates
-- `.mnemo/memory/templates/lesson.template.md` — use this exact format for lessons
+Do not paste large code blocks into memory files. Summarize and reference file paths.
 
-If any of these are missing, run `npx @dinasor/mnemo-cli@latest` first and stop this skill.
+## What to Write
 
-> **Important:** Always edit files in `.mnemo/memory/` (canonical path). The `.cursor/memory/` bridge mirrors automatically.
+### `hot-rules.md`
 
-## 2) Scan Codebase — Architecture Fast
+Keep it short. Only include:
 
-Collect only high-value context (do NOT paste large code blocks):
+- memory authority order
+- hard project invariants
+- critical safety or release rules
+- generated-file warnings
 
-- **Product purpose** — what this project does and for whom
-- **Entrypoints** — main entry files, runtime boundaries (frontend/backend/workers/CLI)
-- **Module ownership** — key directories and their responsibilities
-- **Data model** — primary schemas, contracts, database structure
-- **Integration surfaces** — APIs, queues, webhooks, external services
-- **Tech stack** — languages, frameworks, major dependencies
-- **Quality/security constraints** — required checks, compliance rules
+### `memo.md`
 
-Summarize. Reference file paths instead of copying code.
+This is the main project briefing. It should cover:
 
-## 3) Capture Operational Workflow
+- mission
+- tech stack
+- system shape
+- ownership map
+- critical flows
+- data contracts
+- commands runbook
+- constraints and guardrails
+- known risks
 
-Record **explicit commands** (not vague prose):
+Use the detailed structure from [reference.md](reference.md).
 
-- Install/setup: `npm install`, `pip install -r requirements.txt`, etc.
-- Dev run: `npm run dev`, `python manage.py runserver`, etc.
-- Test: `npm test`, `pytest`, etc.
-- Lint/format: `npm run lint`, `eslint .`, etc.
-- Build/release: `npm run build`, `docker build`, etc.
-- Debugging: common failure signatures and their fixes
+### `active-context.md`
 
-## 4) Write Core Memory Files
+Use it only as the temporary scratchpad for the current seeding pass:
 
-Update in this exact priority order:
+- current goal
+- files in focus
+- major findings
+- blockers or unknowns
 
-### 4a) `.mnemo/memory/hot-rules.md` (10-20 lines MAX)
+### Lessons
 
-Only hard invariants, "never do" rules, and the authority order. Keep it tiny — this is read on EVERY interaction.
+Create 3-8 starter lessons only if you found reusable, prevention-oriented patterns.
+Use the installed lesson template and tag vocabulary exactly.
 
-```markdown
-# Hot Rules
+### Journal
 
-## Authority Order
-1) Lessons override EVERYTHING
-2) active-context overrides memo/journal (but NOT lessons)
-3) memo.md is long-term truth
-4) Journal is history
+Add one initial journal entry summarizing the seeding pass if memory was materially updated.
 
-## Project Invariants
-- Never bypass <critical check>
-- Always run <required command> before release
-- <generated file> is auto-generated — do not edit manually
+## Required Commands
+
+Run the commands that match the current platform:
+
+```text
+Windows
+- scripts/memory/rebuild-memory-index.ps1
+- scripts/memory/lint-memory.ps1
+- scripts/memory/query-memory.ps1
+
+macOS/Linux
+- sh ./scripts/memory/rebuild-memory-index.sh
+- sh ./scripts/memory/lint-memory.sh
+- sh ./scripts/memory/query-memory.sh
 ```
 
-### 4b) `.mnemo/memory/memo.md` (the meat — current truth)
+If vector mode is enabled, also validate with:
 
-Use the detailed template from [reference.md](reference.md). Must cover:
-- Mission (1 paragraph)
-- System shape (components + boundaries)
-- Ownership map (path → responsibility)
-- Critical flows (trigger → path → side effects → failure modes)
-- Commands runbook (copy-paste ready)
-- Constraints and known risks
-
-### 4c) `.mnemo/memory/active-context.md` (session scratchpad)
-
-Fill with the current seeding task status:
-
-```markdown
-## Current Goal
-- Seeding Mnemo memory for this codebase
-
-## Files in Focus
-- .mnemo/memory/memo.md
-- .mnemo/memory/hot-rules.md
-
-## Findings / Decisions
-- <key architectural findings>
-
-## Blockers
-- <remaining unknowns>
+```text
+vector_health
+vector_sync
+vector_search "how do I run tests"
+vector_search "what are the main project risks"
 ```
 
-## 5) Seed Lessons + Journal
+## Retrieval Quality Gate
 
-### Lessons (3-8 starter lessons)
+Check 5-10 realistic queries and confirm the right files surface quickly.
+Use queries like:
 
-Use **exactly** the template from `.mnemo/memory/templates/lesson.template.md`:
+- `what are the main runtime boundaries`
+- `how do I run tests and lint`
+- `who owns <critical module>`
+- `what are the known pitfalls`
+- `how does release or deployment work`
 
-```yaml
----
-id: L-001
-title: "Short descriptive title"
-status: Active
-tags: [Build, Reliability]        # ← use tags from tag-vocabulary.md only
-introduced: 2026-03-05
-applies_to:
-  - "path/or/glob/**"
-triggers:
-  - "error keyword or symptom"
-rule: "One sentence. Imperative. Testable."
-supersedes: ""
----
-```
+If retrieval is weak:
 
-Common starter lessons to extract:
-- Setup/environment traps
-- Naming conventions that bite newcomers
-- Data migration or schema gotchas
-- Release regressions and prevention checks
-- Build/dependency pitfalls
+- split overloaded memo sections
+- tighten headings and terminology
+- move reusable pitfalls into lessons
+- remove stale or low-signal prose
 
-### Journal (one initial entry)
+## Final Output Contract
 
-Write to `.mnemo/memory/journal/YYYY-MM.md`:
+When finished, return exactly these sections:
 
-```markdown
-## YYYY-MM-DD
+1. `Coverage summary` - what project domains are now represented in Mnemo.
+2. `Files updated` - every Mnemo memory file created or edited.
+3. `Commands run` - rebuild, lint, query, and vector commands actually executed.
+4. `Retrieval checks` - queries tried and whether the expected hits were returned.
+5. `Remaining gaps` - explicit unknowns or areas not yet captured.
 
-- [Process] Seeded Mnemo memory for <project>
-  - Why: AI agents need high-signal context to work effectively
-  - Key files: memo.md, hot-rules.md, L-001 through L-XXX
-  - Coverage: architecture, ownership, runbook, N known pitfalls
-  - Gaps: <what remains unknown>
-```
+## Additional Guidance
 
-## 6) Rebuild and Validate
-
-Run these commands in order:
-
-```sh
-# Rebuild indexes
-scripts/memory/rebuild-memory-index.sh    # macOS/Linux
-scripts/memory/rebuild-memory-index.ps1   # Windows
-
-# Lint memory files
-scripts/memory/lint-memory.sh             # macOS/Linux
-scripts/memory/lint-memory.ps1            # Windows
-```
-
-If vector mode is enabled, also run:
-```
-vector_sync      # rebuild the vector index
-vector_health    # verify index is healthy
-```
-
-Fix any lint errors before proceeding.
-
-## 7) Retrieval Quality Gate
-
-Test with 5-10 real queries and verify they return the right files:
-
-| Query | Expected hit |
-|---|---|
-| "What are the core runtime boundaries?" | memo.md (System Shape) |
-| "How do I run tests and lint?" | memo.md (Commands Runbook) |
-| "Who owns `<critical module>`?" | memo.md (Ownership Map) |
-| "What regressions happened before?" | lessons/L-XXX-*.md |
-| "What are the top risks?" | memo.md (Known Risks) |
-| "How do I deploy/release?" | memo.md (Commands Runbook) |
-
-If using vector mode, test with:
-```
-vector_search "how to run tests"
-vector_search "what are the known pitfalls"
-```
-
-### If retrieval misses:
-- Tighten memo headings (make them search-friendly)
-- Split overloaded bullets into separate lines
-- Add a lesson instead of bloating memo
-- Prune low-signal historical text
-- Use consistent terminology from tag-vocabulary.md
-
-## 8) Clear Active Context
-
-Seeding is done. Reset active-context so the agent starts fresh:
-
-```markdown
-# Active Context (Session Scratchpad)
-
-## Current Goal
--
-
-## Files in Focus
--
-
-## Findings / Decisions
--
-
-## Temporary Constraints
--
-
-## Blockers
--
-```
-
-## Memory Quality Rules
-
-- `hot-rules.md` — tiny, immutable-focused, read every time
-- `memo.md` — current truth, not raw history
-- `journal/` — chronological history, low priority
-- `lessons/` — reusable error-prevention patterns
-- Use tags from `tag-vocabulary.md` only (don't invent new ones)
-- Every claim should reference concrete file paths or commands
-- Prefer short headings over long paragraphs
-
-## Output Contract
-
-When done, return:
-
-1. **Coverage summary** — what domains are now in memory
-2. **Files changed** — list of memory files created/updated
-3. **Quality checks** — rebuild + lint status (PASS/FAIL)
-4. **Sample queries** — 3-5 queries and their expected results
-5. **Remaining gaps** — explicit unknowns to fill in a future pass
-
-## Additional Resources
-
-- Detailed memo/lesson/query templates: [reference.md](reference.md)
+- Prefer precise file paths and commands over generic prose.
+- Keep `hot-rules.md` small and `memo.md` current.
+- Do not store raw noise from logs or huge code excerpts.
+- Clear `active-context.md` before ending the seeding pass.
+- Use [reference.md](reference.md) for the exact memo, lesson, journal, and validation structure.

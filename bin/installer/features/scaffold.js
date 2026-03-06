@@ -1,7 +1,6 @@
 "use strict";
 /**
  * scaffold.js — Installs memory content files from templates.
- * Replaces memory_scaffold.ps1 + heredocs in memory_mac.sh.
  */
 
 const fs   = require("fs");

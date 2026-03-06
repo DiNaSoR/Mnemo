@@ -5,9 +5,10 @@
 # Default owner for everything
 * @DiNaSoR
 
-# Core installers — always require maintainer review
-memory.ps1 @DiNaSoR
-memory_mac.sh @DiNaSoR
+# Unified installer surface — always require maintainer review
+bin/mnemo.js @DiNaSoR
+bin/installer/ @DiNaSoR
+scripts/memory/installer/ @DiNaSoR
 
 # CI / release workflows
 .github/workflows/ @DiNaSoR

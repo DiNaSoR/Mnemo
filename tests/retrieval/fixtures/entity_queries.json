@@ -1,0 +1,66 @@
+[
+  {
+    "query": "entity tags alias merge threshold entity_aliases",
+    "description": "Entity alias policy and storage",
+    "category": "entity",
+    "difficulty": "easy",
+    "notes": "Should retrieve entity resolver and schema.",
+    "relevant_refs": ["entity_resolver.py", "schema.py", "policies.yaml"]
+  },
+  {
+    "query": "custom_entities policy fastapi numpy vue-router",
+    "description": "Custom entities in policy",
+    "category": "entity",
+    "difficulty": "easy",
+    "notes": "Targets policy config and entity resolver extraction.",
+    "relevant_refs": ["policies.yaml", "entity_resolver.py"]
+  },
+  {
+    "query": "extract snake_case identifiers and hyphenated package names",
+    "description": "Entity extraction heuristics",
+    "category": "entity",
+    "difficulty": "medium",
+    "notes": "Should map to entity resolver heuristic patterns.",
+    "relevant_refs": ["entity_resolver.py"]
+  },
+  {
+    "query": "entity confidence decay quarantine stale entities",
+    "description": "Entity lifecycle maintenance",
+    "category": "entity",
+    "difficulty": "medium",
+    "notes": "Expected in resolver decay_stale_entities behavior.",
+    "relevant_refs": ["entity_resolver.py"]
+  },
+  {
+    "query": "entity consistency score fusion reranker entity_score",
+    "description": "Entity score in ranking",
+    "category": "entity",
+    "difficulty": "medium",
+    "notes": "Should hit reranker component logic.",
+    "relevant_refs": ["reranker.py"]
+  },
+  {
+    "query": "facts table canonical_fact source_ref schema entities table",
+    "description": "Schema entities/facts linkage",
+    "category": "entity",
+    "difficulty": "medium",
+    "notes": "Schema owns entity and fact table definitions.",
+    "relevant_refs": ["schema.py", "lifecycle_engine.py"]
+  },
+  {
+    "query": "resolve entity by alias get_entity_by_alias",
+    "description": "Alias lookup API",
+    "category": "entity",
+    "difficulty": "hard",
+    "notes": "Direct function lookup in resolver.",
+    "relevant_refs": ["entity_resolver.py"]
+  },
+  {
+    "query": "entity tags propagated to memory_units update_entity_tags",
+    "description": "Entity propagation into units",
+    "category": "entity",
+    "difficulty": "hard",
+    "notes": "Pipeline and resolver both involved.",
+    "relevant_refs": ["ingest_pipeline.py", "entity_resolver.py"]
+  }
+]

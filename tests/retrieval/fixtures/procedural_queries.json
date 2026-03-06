@@ -1,0 +1,66 @@
+[
+  {
+    "query": "install mnemo cli non interactive --yes --repo-root",
+    "description": "CLI installation invocation",
+    "category": "procedural",
+    "difficulty": "easy",
+    "notes": "Command usage in docs and bin entrypoint.",
+    "relevant_refs": ["bin/mnemo.js", "README.md", "tests/README.md"]
+  },
+  {
+    "query": "run installer regression tests test-installer.sh",
+    "description": "Installer regression command guidance",
+    "category": "procedural",
+    "difficulty": "easy",
+    "notes": "Targets documented Linux regression flow.",
+    "relevant_refs": ["test-installer.sh", "tests/README.md"]
+  },
+  {
+    "query": "python syntax checks autonomy templates py_compile",
+    "description": "Autonomy syntax verification",
+    "category": "procedural",
+    "difficulty": "easy",
+    "notes": "Should return tests README and CI references.",
+    "relevant_refs": ["tests/README.md", "ci.yml"]
+  },
+  {
+    "query": "run token cost simulation tests/retrieval/token_cost_simulation.py",
+    "description": "Token simulation procedure",
+    "category": "procedural",
+    "difficulty": "easy",
+    "notes": "Find simulation script and documentation.",
+    "relevant_refs": ["token_cost_simulation.py", "tests/README.md"]
+  },
+  {
+    "query": "run retrieval benchmark with fixtures benchmark_runner.py --fixtures",
+    "description": "Benchmark execution procedure",
+    "category": "procedural",
+    "difficulty": "easy",
+    "notes": "Should locate benchmark script and test docs.",
+    "relevant_refs": ["benchmark_runner.py", "tests/README.md"]
+  },
+  {
+    "query": "how to run autonomous runner once runner.py --mode once",
+    "description": "Autonomy runtime direct invocation",
+    "category": "procedural",
+    "difficulty": "medium",
+    "notes": "Should hit runner implementation and README guidance.",
+    "relevant_refs": ["runner.py", "tests/README.md"]
+  },
+  {
+    "query": "vector health check mcp tool vector_health",
+    "description": "Vector health diagnostics",
+    "category": "procedural",
+    "difficulty": "medium",
+    "notes": "Find vector server tool implementation.",
+    "relevant_refs": ["mnemo_vector.py", "01-vector-search.mdc"]
+  },
+  {
+    "query": "rebuild lint memory commands rebuild-memory-index lint-memory",
+    "description": "Maintenance scripts",
+    "category": "procedural",
+    "difficulty": "medium",
+    "notes": "Finds rebuild and lint scripts.",
+    "relevant_refs": ["rebuild-memory-index.ps1", "lint-memory.ps1", "tests/README.md"]
+  }
+]

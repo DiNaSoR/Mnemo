@@ -13,14 +13,22 @@ powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1
 # Single test
 powershell -ExecutionPolicy Bypass -File .\tests\test-installer.ps1 -TestName malformed-mcp-json
 
-# Modularization guardrail tests (LOC limits + module/template file presence)
+# Installer modularization guardrail tests (entrypoint surface + module/template file presence)
 powershell -ExecutionPolicy Bypass -File .\tests\test-installer-modularization.ps1
-
 # Retrieval quality benchmark (FTS mode, no API key required)
 python tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
 
+# Retrieval benchmark ablation mode (signal contribution matrix)
+python tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/ --ablation
+
 # Deep token-cost simulation for retrieval/context packing
 python tests/retrieval/token_cost_simulation.py --show-per-query --output tests/retrieval/token_cost_report.json
+
+# Contradiction detector evaluation (precision/recall/F1 + category breakdown + report artifacts)
+python tests/retrieval/eval_contradiction.py --by-category --report-json tests/retrieval/reports/contradiction.json --report-csv tests/retrieval/reports/contradiction.csv
+
+# Score-fusion weight sensitivity search + curve artifacts
+python tests/retrieval/weight_sweep.py --curve-json tests/retrieval/reports/weight_curve.json --curve-csv tests/retrieval/reports/weight_curve.csv
 
 # End-to-end pipeline simulation (install -> retrieve -> store -> compact -> resync)
 python tests/retrieval/e2e_pipeline_simulation.py --output tests/retrieval/e2e_pipeline_report.json
@@ -37,6 +45,15 @@ sh ./tests/test-installer.sh malformed-mcp-json
 
 # Retrieval quality benchmark
 python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
+
+# Retrieval benchmark ablation mode
+python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/ --ablation
+
+# Contradiction detector evaluation + category breakdown + report artifacts
+python3 tests/retrieval/eval_contradiction.py --by-category --report-json tests/retrieval/reports/contradiction.json --report-csv tests/retrieval/reports/contradiction.csv
+
+# Score-fusion weight sensitivity search + curve artifacts
+python3 tests/retrieval/weight_sweep.py --curve-json tests/retrieval/reports/weight_curve.json --curve-csv tests/retrieval/reports/weight_curve.csv
 ```
 
 ## Test categories
@@ -64,11 +81,11 @@ python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
 
 | Test name | What it verifies |
 |-----------|-----------------|
-| `memory-ps1-loc` | `memory.ps1` stays within 400-line soft / 500-line hard limit |
-| `no-large-heredoc-in-entrypoint` | No large heredocs re-introduced into `memory.ps1` |
+| `installer-entrypoint-surface` | Unified installer entrypoint stays small enough to remain maintainable |
+| `no-large-heredoc-in-entrypoint` | No large heredocs re-introduced into the installer entrypoint |
 | `module-files-present` | All installer module files exist under `scripts/memory/installer/` |
 | `template-files-present` | All template files exist under `scripts/memory/installer/templates/` |
-| `entrypoint-uses-bootstrap` | `memory.ps1` dot-sources `bootstrap.ps1` |
+| `entrypoint-uses-installer-modules` | Entrypoint delegates to installer modules instead of embedding large install logic |
 | `installed-scripts-match-templates` | Installer copies template content to target correctly |
 
 ### Retrieval quality benchmark (`tests/retrieval/`)
@@ -78,17 +95,22 @@ python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/
 | `benchmark_runner.py` | Computes hit@k, nDCG@k, MRR, p50/p95 latency, token cost |
 | `drift_check.py` | Detects quality regression vs saved baseline |
 | `token_cost_simulation.py` | Simulates token usage by stage (query/candidates/context pack/prompt total) across top-k + budget scenarios |
+| `eval_contradiction.py` | Evaluates contradiction detector precision/recall/F1 with optional per-category output and JSON/CSV reports |
+| `weight_sweep.py` | Grid-searches score-fusion weights and emits best configs plus sensitivity-curve JSON/CSV artifacts |
 | `e2e_pipeline_simulation.py` | Simulates full user journey from install to retrieval, memory write, compact/rebuild, vector resync, and re-retrieval |
-| `fixtures/basic_queries.json` | Ground-truth query→relevant_ref pairs for evaluation |
+| `fixtures/*.json` | Multi-category benchmark fixtures (`basic`, `procedural`, `episodic`, `entity`, contradiction pairs) |
 
 ## Adding fixtures
 
-To add retrieval test cases, edit `tests/retrieval/fixtures/basic_queries.json`:
+To add retrieval test cases, add or edit JSON files under `tests/retrieval/fixtures/`:
 
 ```json
 {
   "query": "your search query",
   "description": "What this tests",
+  "category": "basic|procedural|episodic|entity",
+  "difficulty": "easy|medium|hard",
+  "notes": "optional note for maintainers",
   "relevant_refs": ["expected/file.md", "another/path.md"]
 }
 ```

@@ -20,10 +20,10 @@ from autonomy.schema import get_db
 from autonomy.common import AUTHORITY_WEIGHTS, infer_memory_type as _infer_memory_type, infer_time_scope as _infer_time_scope
 
 # Score fusion weights (must sum to 1.0)
-W_SEMANTIC   = 0.55
-W_AUTHORITY  = 0.25
-W_TEMPORAL   = 0.10
-W_ENTITY     = 0.10
+W_SEMANTIC = 0.55
+W_AUTHORITY = 0.25
+W_TEMPORAL = 0.10
+W_ENTITY = 0.10
 
 # Temporal decay half-life in days for episodic memory
 EPISODIC_HALF_LIFE_DAYS = 30.0
@@ -127,8 +127,22 @@ def _entity_score(entity_tags_json: str, query: str, db: sqlite3.Connection) -> 
 
 
 class ScoreFusionReranker:
-    def __init__(self, db: Optional[sqlite3.Connection] = None):
+    def __init__(self, db: Optional[sqlite3.Connection] = None, weights: Optional[dict[str, float]] = None):
         self.db = db or get_db()
+        merged = {
+            "semantic": W_SEMANTIC,
+            "authority": W_AUTHORITY,
+            "temporal": W_TEMPORAL,
+            "entity": W_ENTITY,
+        }
+        if weights:
+            for key in ("semantic", "authority", "temporal", "entity"):
+                if key in weights:
+                    merged[key] = float(weights[key])
+        total = sum(merged.values())
+        if total <= 0:
+            raise ValueError("Reranker weights must sum to a positive value")
+        self.weights = {k: v / total for k, v in merged.items()}
 
     def rerank(
         self,
@@ -185,10 +199,10 @@ class ScoreFusionReranker:
 
             # Fusion
             final_score = (
-                W_SEMANTIC * semantic_score
-                + W_AUTHORITY * authority_score
-                + W_TEMPORAL * temporal
-                + W_ENTITY * entity
+                self.weights["semantic"] * semantic_score
+                + self.weights["authority"] * authority_score
+                + self.weights["temporal"] * temporal
+                + self.weights["entity"] * entity
             )
 
             ranked.append(RankedResult(

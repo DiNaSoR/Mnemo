@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -40,27 +43,34 @@ jobs:
       - name: Install Mnemo to temp dir
         run: |
           mkdir -p /tmp/mnemo-nightly
-          sh ./memory_mac.sh --repo-root /tmp/mnemo-nightly --project-name NightlyBench
+          node bin/mnemo.js --yes --repo-root /tmp/mnemo-nightly --project-name NightlyBench
 
       - name: Run benchmark
         id: benchmark
         run: |
+          set +e
           cd /tmp/mnemo-nightly
           python3 $GITHUB_WORKSPACE/tests/retrieval/benchmark_runner.py \
             --fixtures $GITHUB_WORKSPACE/tests/retrieval/fixtures/ \
             --persist-baseline /tmp/bench-current.json \
             --policy $GITHUB_WORKSPACE/scripts/memory/installer/templates/autonomy/policies.yaml
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          status=$?
+          echo "exit_code=$status" >> $GITHUB_OUTPUT
+          exit 0
         continue-on-error: true
 
       - name: Drift check vs baseline
         if: steps.restore-baseline.outputs.cache-hit == 'true'
         run: |
+          fail_flag=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.fail_on_regression }}" = "true" ]; then
+            fail_flag="--fail-on-regression"
+          fi
           python3 $GITHUB_WORKSPACE/tests/retrieval/drift_check.py \
             --current /tmp/bench-current.json \
             --baseline /tmp/bench-baseline.json \
             --output /tmp/drift-report.json \
-            ${{ (github.event.inputs.fail_on_regression == 'true') && '--fail-on-regression' || '' }}
+            $fail_flag
 
       - name: Promote current to baseline
         run: cp /tmp/bench-current.json /tmp/bench-baseline.json
@@ -81,26 +91,35 @@ jobs:
             /tmp/drift-report.json
           retention-days: 30
 
+      - name: Fail if benchmark command crashed
+        if: always()
+        run: |
+          if [ "${{ steps.benchmark.outputs.exit_code }}" != "0" ]; then
+            echo "ERROR: nightly benchmark command exited with code ${{ steps.benchmark.outputs.exit_code }}"
+            exit 1
+          fi
+
   modularization-nightly:
-    name: Nightly modularization check
+    name: Nightly installer inventory
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check memory.ps1 LOC trend
+      - name: Summarize installer entrypoints
         run: |
-          loc=$(wc -l < memory.ps1)
-          echo "memory.ps1: $loc lines"
-          echo "loc=$loc" >> $GITHUB_STEP_SUMMARY
-          if [ "$loc" -gt 500 ]; then
-            echo "FAIL: memory.ps1 > 500 lines (hard limit)" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
+          echo "## Installer entrypoints" >> $GITHUB_STEP_SUMMARY
+          wc -l bin/mnemo.js bin/installer/index.js | awk '{print "  "$1": "$2}' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Module file inventory
         run: |
           echo "## Module files" >> $GITHUB_STEP_SUMMARY
-          find scripts/memory/installer/ -type f | sort | while read f; do
+          find bin/installer/ -type f | sort | while read f; do
+            wc -l "$f" | awk '{print "  "$1": "$2}' >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Template files" >> $GITHUB_STEP_SUMMARY
+          find scripts/memory/installer/templates/ -type f | sort | while read f; do
             wc -l "$f" | awk '{print "  "$1": "$2}' >> $GITHUB_STEP_SUMMARY
           done
           echo "" >> $GITHUB_STEP_SUMMARY

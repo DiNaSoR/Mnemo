@@ -1,6 +1,6 @@
 # Mnemo Codebase Optimizer Reference
 
-## Memo Template (Detailed)
+## Memo Template
 
 Use this structure for `.mnemo/memory/memo.md`:
 
@@ -10,16 +10,15 @@ Use this structure for `.mnemo/memory/memo.md`:
 Last updated: YYYY-MM-DD
 
 ## Mission
-- One-paragraph purpose and primary user outcomes.
+- One short paragraph explaining what the repository does and why it exists.
 
 ## Tech Stack
-- Language(s): `<lang>`
-- Framework(s): `<framework>`
-- Key dependencies: `<deps>`
+- Languages: `<lang>`
+- Frameworks / runtimes: `<framework>`
+- Important dependencies: `<deps>`
 
 ## System Shape
 - Runtime components:
-  - `<component>`: `<responsibility>`
   - `<component>`: `<responsibility>`
 - Boundaries:
   - `<boundary>` -> `<dependency>`
@@ -27,15 +26,14 @@ Last updated: YYYY-MM-DD
 ## Ownership Map
 | Module / Path | Responsibility |
 |---|---|
-| `<module/path>` | `<what it does>` |
-| `<module/path>` | `<what it does>` |
+| `<path>` | `<responsibility>` |
 
 ## Critical Flows
-- **Flow A:**
+- **Flow name**
   - Trigger: `<event>`
-  - Core path: `<file>` → `<file>` → `<file>`
-  - Side effects: `<what else happens>`
-  - Failure modes: `<what can go wrong>`
+  - Path: `<file>` -> `<file>` -> `<file>`
+  - Side effects: `<effects>`
+  - Failure modes: `<what breaks>`
 
 ## Data Contracts
 | Type / Schema | Purpose | Key Fields |
@@ -45,92 +43,87 @@ Last updated: YYYY-MM-DD
 ## Commands Runbook
 | Action | Command |
 |---|---|
-| Install | `<command>` |
+| Install / bootstrap | `<command>` |
 | Dev run | `<command>` |
 | Test | `<command>` |
-| Lint/format | `<command>` |
+| Lint / format | `<command>` |
 | Build | `<command>` |
-| Release/deploy | `<command>` |
+| Release / deploy | `<command>` |
 
 ## Constraints and Guardrails
 - Non-negotiables:
   - `<rule>`
-- Security/compliance:
+- Security / compliance:
   - `<constraint>`
 
 ## Known Risks
 | Risk | Detection | Mitigation |
 |---|---|---|
-| `<risk>` | `<how to detect>` | `<how to fix>` |
+| `<risk>` | `<how to spot it>` | `<how to reduce it>` |
 ```
 
 ## Hot Rules Template
 
-Use this for `.mnemo/memory/hot-rules.md` (10-20 lines strict):
+Use this for `.mnemo/memory/hot-rules.md` and keep it under about 20 lines:
 
 ```markdown
 # Hot Rules (MUST READ)
 
-Keep this file under ~20 lines. If it grows, move content into memo or lessons.
-
-## Authority Order (highest to lowest)
-1) Lessons override EVERYTHING (including active-context)
-2) active-context.md overrides memo/journal (but NOT lessons)
+## Authority Order
+1) Lessons override EVERYTHING
+2) active-context.md overrides memo and journal for the current session
 3) memo.md is long-term project truth
 4) Journal is history
 
 ## Retrieval Rules
-5) Do NOT scan raw journals. Use indexes/digests first.
-6) Reuse existing patterns. Check memo.md before creating new systems.
-7) When done: clear active-context.md, add journal entry if significant.
+- Check memo and lessons before inventing new patterns.
+- Do not scan raw journal history first.
+- Clear active-context.md when the task is done.
 
 ## Project Invariants
-- Never <critical action> without <safety precondition>.
-- <generated file> is auto-generated — do not edit manually.
-- Before release: run <required commands>.
+- Never `<unsafe action>` without `<precondition>`.
+- `<generated file>` is generated. Do not edit it manually.
+- Before release: run `<required commands>`.
 ```
 
 ## Active Context Template
 
-Use this for `.mnemo/memory/active-context.md`:
+Use this for `.mnemo/memory/active-context.md` during the seeding pass:
 
 ```markdown
 # Active Context (Session Scratchpad)
 
-Priority: this overrides older journal history *for this session only*.
-
 ## Current Goal
-- <what you are working on>
+- Seeding Mnemo memory for this repository
 
 ## Files in Focus
-- <key files for this task>
+- <files currently being summarized>
 
 ## Findings / Decisions
-- <discovered during this session>
+- <important findings from this pass>
 
 ## Temporary Constraints
-- <session-specific rules>
+- <session-specific constraints>
 
 ## Blockers
-- <what is preventing progress>
+- <open unknowns>
 ```
 
-## Lesson Template (Exact Match)
+## Lesson Template
 
-Use this for each `.mnemo/memory/lessons/L-XXX-title.md`.
-This must match the installed template at `.mnemo/memory/templates/lesson.template.md`:
+Use the installed lesson template at `.mnemo/memory/templates/lesson.template.md` exactly:
 
 ```markdown
 ---
 id: L-XXX
 title: Short descriptive title
 status: Active
-tags: [UI, Reliability]
+tags: [Build, Reliability]
 introduced: YYYY-MM-DD
 applies_to:
   - path/or/glob/**
 triggers:
-  - error keyword
+  - error keyword or symptom
 rule: One sentence. Imperative. Testable.
 supersedes: ""
 ---
@@ -138,68 +131,67 @@ supersedes: ""
 # L-XXX - Short descriptive title
 
 ## Symptom
-What does the developer observe when this pitfall is hit?
+What the developer or agent observes.
 
 ## Root cause
-Why does this happen? What is the underlying mechanism?
+Why this happens.
 
 ## Wrong approach (DO NOT REPEAT)
-- What someone might try that makes it worse
+- Common failed fix or repeated mistake.
 
 ## Correct approach
-- The right way to fix or prevent this
+- The reliable prevention or repair path.
 ```
 
-### Tag vocabulary (use only these)
+## Approved Tag Vocabulary
 
-> From `.mnemo/memory/tag-vocabulary.md`
+Use tags from `.mnemo/memory/tag-vocabulary.md` only.
+Common starter tags include:
 
-**Domain tags:** `[UI]`, `[Layout]`, `[Input]`, `[Data]`, `[Server]`, `[Init]`, `[Build]`, `[CI]`, `[Release]`, `[Compat]`, `[Integration]`, `[Docs]`, `[Architecture]`, `[DX]`, `[Reliability]`, `[Process]`
+- Domain: `Architecture`, `Build`, `CI`, `Compat`, `DX`, `Docs`, `Data`, `Init`, `Integration`, `Process`, `Release`, `Reliability`, `Server`, `UI`
+- Type: `Fix`, `Feature`, `Refactor`
 
-**Type tags:** `[Fix]`, `[Feature]`, `[Refactor]`
-
-Do not invent new tags. Pick the closest match.
+Do not invent new tags unless the installed vocabulary already contains them.
 
 ## Journal Entry Template
 
-Use for `.mnemo/memory/journal/YYYY-MM.md`:
+Use this structure in `.mnemo/memory/journal/YYYY-MM.md`:
 
 ```markdown
 ## YYYY-MM-DD
 
-- [Area][Type] Title
-  - Why: <reason>
+- [Area][Type] Seeding summary
+  - Why: <why this memory pass was needed>
   - Key files:
     - `path/to/file`
-  - Verification: Build PASS/FAIL; Runtime PASS/FAIL
+  - Verification: rebuild PASS/FAIL; lint PASS/FAIL; retrieval PASS/FAIL
 ```
 
-## Retrieval Validation Query Set
+## Retrieval Validation Set
 
-Run these and confirm each returns high-signal files:
+Run queries like these and confirm the right files surface:
 
-| # | Query | Expected Primary Hit |
-|---|---|---|
-| 1 | "What are the core runtime boundaries?" | memo.md → System Shape |
-| 2 | "Which files define the main data contracts?" | memo.md → Data Contracts |
-| 3 | "How do I run full tests and lint?" | memo.md → Commands Runbook |
-| 4 | "What regressions happened and how to prevent?" | lessons/L-XXX-*.md |
-| 5 | "Who owns `<critical module>` and what are the rules?" | memo.md → Ownership Map |
-| 6 | "What are the top production risks?" | memo.md → Known Risks |
+| Query | Expected Primary Hit |
+|---|---|
+| `what are the runtime boundaries` | `memo.md` -> `System Shape` |
+| `how do I run tests and lint` | `memo.md` -> `Commands Runbook` |
+| `who owns <critical module>` | `memo.md` -> `Ownership Map` |
+| `what are the known pitfalls` | `lessons/*.md` |
+| `how does release work` | `memo.md` -> `Commands Runbook` or `Known Risks` |
 
-If vector mode is enabled, test with MCP tools:
+If vector mode is enabled, also run:
+
+```text
+vector_search "how do I run tests"
+vector_search "what are the main project risks"
+vector_search "who owns the critical modules"
 ```
-vector_search "how to run tests"
-vector_search "known pitfalls and regressions"
-vector_search "deployment process"
-```
 
-## Optimization Heuristics
+## Quality Heuristics
 
-- Prefer one clear heading over long paragraphs
-- Replace duplicate bullets with one canonical bullet
-- If a memo section grows beyond ~50 lines, split into lessons
-- Keep journal chronological; keep memo conceptual
-- Remove stale TODOs from memo; only keep current truth
-- Use consistent tags and terminology from tag-vocabulary.md
-- Every important claim should map to a concrete file path or command
+- Prefer headings and tables over long paragraphs.
+- Split dense memo sections before they become hard to retrieve.
+- Move reusable pitfalls into lessons instead of bloating the memo.
+- Keep the memo current and conceptual; keep the journal historical.
+- Every important claim should map to a file path, command, or schema.
+- End by clearing `active-context.md`.

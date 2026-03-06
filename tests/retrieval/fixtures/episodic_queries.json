@@ -1,0 +1,66 @@
+[
+  {
+    "query": "recent work today current session active-context",
+    "description": "Session recency retrieval",
+    "category": "episodic",
+    "difficulty": "easy",
+    "notes": "Should prioritize active-context and journal patterns.",
+    "relevant_refs": ["active-context.md", "journal-README.md"]
+  },
+  {
+    "query": "what happened yesterday in journal entries",
+    "description": "Journal history lookup",
+    "category": "episodic",
+    "difficulty": "easy",
+    "notes": "Targets journal docs and entry templates.",
+    "relevant_refs": ["journal-README.md", "journal-entry.template.md"]
+  },
+  {
+    "query": "autonomous cycle summary facts added deprecated promoted",
+    "description": "Autonomous runner summary behavior",
+    "category": "episodic",
+    "difficulty": "medium",
+    "notes": "Should hit runner lifecycle logging.",
+    "relevant_refs": ["runner.py", "lifecycle_engine.py"]
+  },
+  {
+    "query": "stale runner lock skip cycle .autonomy runner.lock",
+    "description": "Runner lock behavior",
+    "category": "episodic",
+    "difficulty": "medium",
+    "notes": "Lock handling lives in runner implementation.",
+    "relevant_refs": ["runner.py", "tests/README.md"]
+  },
+  {
+    "query": "no human in loop autonomous memory cycle",
+    "description": "Autonomous operation language",
+    "category": "episodic",
+    "difficulty": "medium",
+    "notes": "Runner and lifecycle docs both include this framing.",
+    "relevant_refs": ["runner.py", "lifecycle_engine.py"]
+  },
+  {
+    "query": "lesson promotion stable signals confidence threshold",
+    "description": "Promotion mechanics",
+    "category": "episodic",
+    "difficulty": "medium",
+    "notes": "Promotion is implemented in lifecycle engine and policy.",
+    "relevant_refs": ["lifecycle_engine.py", "policies.yaml"]
+  },
+  {
+    "query": "scheduler interval autonomous mode schedule",
+    "description": "Scheduled autonomy mode",
+    "category": "episodic",
+    "difficulty": "hard",
+    "notes": "Route to runner schedule loop logic.",
+    "relevant_refs": ["runner.py"]
+  },
+  {
+    "query": "journal delta write autonomy process entry",
+    "description": "Autonomy-generated journal entry",
+    "category": "episodic",
+    "difficulty": "hard",
+    "notes": "Expected in runner journal delta method.",
+    "relevant_refs": ["runner.py", "journal-entry.md.tmpl"]
+  }
+]

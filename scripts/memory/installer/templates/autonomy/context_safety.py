@@ -7,29 +7,30 @@ Checks:
   1. Duplicate snippet detection (prevents redundant context)
   2. Contradiction detection (alerts on conflicting facts)
   3. Low-signal suppression (filters empty/trivial content)
-  4. Token budget enforcement (hard cap on total context chars)
+  4. Token budget enforcement (hard cap on total context tokens)
   5. Sensitivity redaction (vault/secret entries stripped before delivery)
-
-No human required: all checks are policy-driven.
 """
+from __future__ import annotations
+
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
-from autonomy.schema import get_db
+from autonomy.contradiction import compare_texts
 from autonomy.reranker import RankedResult
+from autonomy.schema import get_db
+from autonomy.token_counter import (
+    DEFAULT_BUDGET_TOKENS,
+    TokenCounter,
+    load_token_budget_config,
+    resolve_policy_path,
+)
 
-DEFAULT_TOKEN_BUDGET = 6000  # chars (~1500 tokens)
-MIN_CONTENT_CHARS = 20       # snippets shorter than this are suppressed
-DUPLICATE_JACCARD_THRESHOLD = 0.85  # above = duplicate
-CONTRADICTION_KEYWORD_PAIRS = [
-    ("do not", "always"),
-    ("never", "must"),
-    ("disabled", "enabled"),
-    ("false", "true"),
-    ("forbidden", "required"),
-]
+DEFAULT_TOKEN_BUDGET = DEFAULT_BUDGET_TOKENS
+MIN_CONTENT_CHARS = 20
+DUPLICATE_JACCARD_THRESHOLD = 0.85
 
 
 @dataclass
@@ -39,9 +40,15 @@ class SafetyCheckResult:
     filtered_results: list[RankedResult] = field(default_factory=list)
     token_budget_used: int = 0
     token_budget_max: int = DEFAULT_TOKEN_BUDGET
+    token_counter_mode: str = "chars/4"
+    budget_source: str = "defaults"
 
     def summary(self) -> str:
-        s = f"safety={'PASS' if self.passed else 'ISSUES'} used={self.token_budget_used}/{self.token_budget_max}"
+        s = (
+            f"safety={'PASS' if self.passed else 'ISSUES'} "
+            f"used={self.token_budget_used}/{self.token_budget_max} tokens "
+            f"counter={self.token_counter_mode}"
+        )
         if self.issues:
             s += f" issues={len(self.issues)}"
         return s
@@ -68,31 +75,103 @@ def _detect_duplicates(results: list[RankedResult], max_pairs: int = 50) -> list
     return pairs
 
 
-def _detect_contradictions(results: list[RankedResult]) -> list[tuple[int, int, str]]:
+def _safe_yaml_load(path: Optional[Path]) -> dict:
+    if path is None or not path.exists():
+        return {}
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        return {}
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _detect_contradictions(
+    results: list[RankedResult],
+    use_embeddings: bool = False,
+    anchor_threshold: float = 0.45,
+    embed_threshold: float = 0.72,
+    mode: str = "hybrid",
+    min_frame_confidence: float = 0.55,
+    require_embedding_confirmation: bool = False,
+) -> list[tuple[int, int, str]]:
     """Return (i, j, reason) triples indicating contradicting result pairs."""
     contradictions: list[tuple[int, int, str]] = []
     for i in range(len(results)):
         for j in range(i + 1, len(results)):
-            a = results[i].content.lower()
-            b = results[j].content.lower()
-            for neg, pos in CONTRADICTION_KEYWORD_PAIRS:
-                if neg in a and pos in b:
-                    contradictions.append((i, j, f"'{neg}' vs '{pos}'"))
-                    break
-                if pos in a and neg in b:
-                    contradictions.append((i, j, f"'{pos}' vs '{neg}'"))
-                    break
+            match = compare_texts(
+                results[i].content,
+                results[j].content,
+                use_embeddings=use_embeddings,
+                anchor_threshold=anchor_threshold,
+                embed_threshold=embed_threshold,
+                mode=mode,
+                min_frame_confidence=min_frame_confidence,
+                require_embedding_confirmation=require_embedding_confirmation,
+            )
+            if match is not None:
+                contradictions.append((i, j, f"{match.method}:{match.reason}"))
     return contradictions
 
 
 class ContextSafetyGuard:
     def __init__(
         self,
-        token_budget: int = DEFAULT_TOKEN_BUDGET,
+        token_budget: Optional[int] = None,
+        token_provider: str = "auto",
+        token_model: str = "gpt-4o-mini",
+        use_embedding_contradictions: Optional[bool] = None,
+        contradiction_anchor_threshold: Optional[float] = None,
+        contradiction_embed_threshold: Optional[float] = None,
+        contradiction_mode: Optional[str] = None,
+        contradiction_min_frame_confidence: Optional[float] = None,
+        require_embedding_confirmation: Optional[bool] = None,
         db: Optional[sqlite3.Connection] = None,
     ):
-        self.token_budget = token_budget
         self.db = db or get_db()
+        policy_path = resolve_policy_path()
+        policy = _safe_yaml_load(policy_path)
+        contradiction_cfg = policy.get("contradiction", {}) if isinstance(policy, dict) else {}
+        if not isinstance(contradiction_cfg, dict):
+            contradiction_cfg = {}
+
+        budgets = load_token_budget_config(policy_path=policy_path)
+        self.token_budget = token_budget if token_budget and token_budget > 0 else budgets.default_tokens
+        self.budget_source = budgets.source
+        self.token_counter = TokenCounter(provider=token_provider, model=token_model)
+
+        if use_embedding_contradictions is None:
+            self.use_embedding_contradictions = bool(contradiction_cfg.get("use_embeddings", False))
+        else:
+            self.use_embedding_contradictions = bool(use_embedding_contradictions)
+
+        self.contradiction_anchor_threshold = (
+            float(contradiction_anchor_threshold)
+            if contradiction_anchor_threshold is not None
+            else float(contradiction_cfg.get("anchor_similarity_threshold", 0.45))
+        )
+        self.contradiction_embed_threshold = (
+            float(contradiction_embed_threshold)
+            if contradiction_embed_threshold is not None
+            else float(contradiction_cfg.get("embedding_similarity_threshold", 0.72))
+        )
+        self.contradiction_mode = (
+            str(contradiction_mode).strip().lower()
+            if contradiction_mode is not None
+            else str(contradiction_cfg.get("mode", "hybrid")).strip().lower()
+        )
+        self.contradiction_min_frame_confidence = (
+            float(contradiction_min_frame_confidence)
+            if contradiction_min_frame_confidence is not None
+            else float(contradiction_cfg.get("min_frame_confidence", 0.55))
+        )
+        if require_embedding_confirmation is None:
+            self.require_embedding_confirmation = bool(contradiction_cfg.get("require_embedding_confirmation", False))
+        else:
+            self.require_embedding_confirmation = bool(require_embedding_confirmation)
 
     def check(self, results: list[RankedResult]) -> SafetyCheckResult:
         """
@@ -134,7 +213,15 @@ class ContextSafetyGuard:
         filtered = [r for idx, r in enumerate(filtered) if idx not in to_remove]
 
         # 4. Contradiction detection (warn but keep both, lower confidence)
-        contradictions = _detect_contradictions(filtered)
+        contradictions = _detect_contradictions(
+            filtered,
+            use_embeddings=self.use_embedding_contradictions,
+            anchor_threshold=self.contradiction_anchor_threshold,
+            embed_threshold=self.contradiction_embed_threshold,
+            mode=self.contradiction_mode,
+            min_frame_confidence=self.contradiction_min_frame_confidence,
+            require_embedding_confirmation=self.require_embedding_confirmation,
+        )
         for i, j, reason in contradictions:
             issues.append(
                 f"Contradiction detected ({reason}): {filtered[i].ref_path} vs {filtered[j].ref_path}"
@@ -147,12 +234,12 @@ class ContextSafetyGuard:
         budget_used = 0
         final: list[RankedResult] = []
         for r in sorted(filtered, key=lambda x: x.final_score, reverse=True):
-            chars = len(r.content)
-            if budget_used + chars > self.token_budget:
-                issues.append(f"Token budget exceeded; truncated at {budget_used} chars")
+            tokens = self.token_counter.count(r.content)
+            if budget_used + tokens > self.token_budget:
+                issues.append(f"Token budget exceeded; truncated at {budget_used} tokens")
                 break
             final.append(r)
-            budget_used += chars
+            budget_used += tokens
 
         passed = not any("REDACTED secret" in i or "REDACTED vault" in i for i in issues)
         return SafetyCheckResult(
@@ -161,6 +248,8 @@ class ContextSafetyGuard:
             filtered_results=final,
             token_budget_used=budget_used,
             token_budget_max=self.token_budget,
+            token_counter_mode=self.token_counter.mode,
+            budget_source=self.budget_source,
         )
 
     def build_context_pack(self, results: list[RankedResult]) -> str:

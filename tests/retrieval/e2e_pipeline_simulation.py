@@ -160,26 +160,11 @@ def _parse_json_maybe(raw: str) -> dict[str, Any]:
 
 
 def _build_install_cmd(repo_root: Path, temp_repo: Path, provider: str) -> list[str]:
-    """Build the installer command appropriate for the current platform."""
-    import platform
-    if platform.system() == "Windows":
-        return [
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo_root / "memory.ps1"),
-            "-RepoRoot",
-            str(temp_repo),
-            "-ProjectName",
-            "E2EPipelineSim",
-            "-EnableVector",
-            "-VectorProvider",
-            provider,
-        ]
+    """Build the unified Node.js installer command."""
     return [
-        "sh",
-        str(repo_root / "memory_mac.sh"),
+        "node",
+        str(repo_root / "bin" / "mnemo.js"),
+        "--yes",
         "--repo-root",
         str(temp_repo),
         "--project-name",

@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mnemo u
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-03-06
+
+### Added
+- Predicate-aware contradiction detection, shared token counting, contradiction evaluation, weight-sweep reporting, and expanded retrieval fixtures for the autonomy/retrieval stack.
+- POSIX helper-script templates for all core memory workflows and a paper-style `paper/field-guide.html` usage guide.
+- Installer-managed quarantine for unexpected files under `.cursor/skills/mnemo-codebase-optimizer/` via `.mnemo/legacy/skill-orphans/...`.
+- CI/release tarball smoke tests, blocking retrieval/evaluation jobs, and stronger Windows/POSIX regression coverage.
+
+### Changed
+- Unified installer/package/docs/tests are now aligned around `bin/mnemo.js`, packaged template assets, and the current helper-script/runtime layout.
+- `mnemo-codebase-optimizer` was refreshed into a generic optional post-install seeding skill with updated output contract and validation flow.
+- Public release workflows now verify the packed npm artifact, real installer regression suites, and nightly regression behavior more strictly.
+- Cursor rules bridging/migration now enforces `.mdc`-only content and quarantines non-rule leftovers instead of propagating them.
+
+### Fixed
+- Token budgets now report real tokenizer modes instead of relying on character counts.
+- Existing installs now pick up newly required autonomy runtime modules during vector upgrades.
+- Windows installer tests now cover vector CLI paths without false skips from Python/sqlite detection issues.
+- Installer skill/rule surfaces no longer accumulate stale orphaned files across reinstalls.
+
 ## [0.0.8] - 2026-03-05
 
 ### Added

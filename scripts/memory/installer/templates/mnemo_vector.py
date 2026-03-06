@@ -639,6 +639,20 @@ def vector_sync() -> str:
     return msg
 
 
+def _parse_rerank_weights_env() -> dict[str, float] | None:
+    raw = os.getenv("MNEMO_RERANK_WEIGHTS", "").strip()
+    if not raw:
+        return None
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) != 4:
+        return None
+    try:
+        sem, auth, temp, ent = (float(x) for x in parts)
+        return {"semantic": sem, "authority": auth, "temporal": temp, "entity": ent}
+    except Exception:
+        return None
+
+
 @mcp.tool()
 def vector_search(query: str, top_k: int = 5, memory_type: str = "") -> str:
     """Semantic search with authority-aware reranking. Optional memory_type filter (core/procedural/episodic/semantic)."""
@@ -647,6 +661,7 @@ def vector_search(query: str, top_k: int = 5, memory_type: str = "") -> str:
     top_k = max(1, min(top_k, MAX_TOP_K))
     fetch_k = min(top_k * 3, _VEC_KNN_LIMIT)
 
+    db = None
     try:
         db = init_db()
         emb = get_embedding(query)
@@ -654,41 +669,73 @@ def vector_search(query: str, top_k: int = 5, memory_type: str = "") -> str:
             "SELECT ref_path, content, distance FROM vec_memory WHERE embedding MATCH ? AND k = ? ORDER BY distance",
             (serialize_f32(emb), fetch_k),
         ).fetchall()
-        db.close()
     except Exception as e:
+        if db is not None:
+            db.close()
         return f"Search failed: {e}"
 
     if not rows:
+        if db is not None:
+            db.close()
         return "No relevant memory found."
 
     type_filter = memory_type.strip().lower() if memory_type else ""
-
-    reranked = []
+    raw_results: list[dict] = []
     for row in rows:
-        ref, content, dist = row["ref_path"], row["content"], row["distance"]
-        sem_score = round(1.0 - dist, 4)
+        ref = row["ref_path"]
         mem_type = _infer_memory_type(ref)
-        auth_weight = AUTHORITY_WEIGHTS.get(mem_type, 0.5)
         if mem_type == "vault":
             continue
         if type_filter and mem_type != type_filter:
             continue
-        # Temporal boost for recency-sensitive types when query mentions time words
-        temporal_boost = 0.0
-        time_words = {"today", "yesterday", "last week", "last month", "recent", "latest"}
-        if mem_type == "episodic" and any(w in query.lower() for w in time_words):
-            temporal_boost = 0.1
-        final_score = (sem_score * 0.6) + (auth_weight * 0.3) + temporal_boost
-        reranked.append((ref, content, sem_score, auth_weight, final_score))
-
-    reranked.sort(key=lambda x: x[4], reverse=True)
-    top = reranked[:top_k]
+        raw_results.append(
+            {
+                "ref_path": ref,
+                "content": row["content"],
+                "source_file": ref.split("#", 1)[0].lstrip("@"),
+                "distance": float(row["distance"]),
+                "memory_type": mem_type,
+                "time_scope": _infer_time_scope(mem_type),
+            }
+        )
 
     out = []
-    for ref, content, sem, auth, final in top:
-        preview = " ".join(content[:400].split())
-        out.append(f"[score={final:.3f} sem={sem:.3f} auth={auth:.2f}] {ref}\n{preview}")
-    return "\n\n---\n\n".join(out)
+    try:
+        from autonomy.reranker import ScoreFusionReranker
+
+        reranker = ScoreFusionReranker(db=db, weights=_parse_rerank_weights_env())
+        ranked = reranker.rerank(query=query, raw_results=raw_results, top_k=top_k)
+        for r in ranked:
+            preview = " ".join(r.content[:400].split())
+            out.append(
+                f"[score={r.final_score:.3f} sem={r.semantic_score:.3f} "
+                f"auth={r.authority_score:.2f} temp={r.temporal_score:.2f} ent={r.entity_score:.2f}] "
+                f"{r.ref_path}\n{preview}"
+            )
+    except Exception:
+        reranked = []
+        for item in raw_results:
+            ref = item["ref_path"]
+            content = item["content"]
+            dist = float(item["distance"])
+            sem_score = round(1.0 - dist, 4)
+            mem_type = item["memory_type"]
+            auth_weight = AUTHORITY_WEIGHTS.get(mem_type, 0.5)
+            temporal_boost = 0.0
+            time_words = {"today", "yesterday", "last week", "last month", "recent", "latest"}
+            if mem_type == "episodic" and any(w in query.lower() for w in time_words):
+                temporal_boost = 0.1
+            final_score = (sem_score * 0.6) + (auth_weight * 0.3) + temporal_boost
+            reranked.append((ref, content, sem_score, auth_weight, final_score))
+        reranked.sort(key=lambda x: x[4], reverse=True)
+        for ref, content, sem, auth, final in reranked[:top_k]:
+            preview = " ".join(content[:400].split())
+            out.append(f"[score={final:.3f} sem={sem:.3f} auth={auth:.2f}] {ref}\n{preview}")
+    finally:
+        if db is not None:
+            db.close()
+
+    return "\n\n---\n\n".join(out) if out else "No relevant memory found."
 
 
 def _escape_like(pattern: str) -> str:

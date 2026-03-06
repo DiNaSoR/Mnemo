@@ -13,15 +13,18 @@ All test commands are documented in `tests/README.md`. Key commands for Linux:
 | POSIX installer regression (15 tests) | `sh ./tests/test-installer.sh` |
 | Python syntax checks | `python3 -m py_compile scripts/memory/installer/templates/autonomy/*.py` |
 | Retrieval quality benchmark (FTS) | Install Mnemo to a temp dir first, then run `python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/` from that dir |
+| Retrieval ablation study | `python3 tests/retrieval/benchmark_runner.py --fixtures tests/retrieval/fixtures/ --ablation` |
+| Contradiction detection eval | `python3 tests/retrieval/eval_contradiction.py` |
+| Score-fusion weight sweep | `python3 tests/retrieval/weight_sweep.py` |
 | Token cost simulation | `python3 tests/retrieval/token_cost_simulation.py` (from an installed Mnemo dir) |
 | Version consistency | Check `VERSION` is valid semver and `CHANGELOG.md` has version sections |
-| Modularization guard | Verify `memory.ps1` is under 500 lines; all module/template files exist |
+| Modularization guard | Verify the unified installer entrypoint stays thin and all module/template files exist |
 
 ### Running the CLI
 
 Non-interactive (CI-safe): `node bin/mnemo.js --yes --repo-root <target-dir> --project-name <name>`
 
-The CLI runs the POSIX installer (`memory_mac.sh`) on Linux. There are no npm runtime dependencies to install — `package.json` has zero `dependencies`.
+The CLI runs the unified Node installer on every platform. There are no npm runtime dependencies to install — `package.json` has zero `dependencies`.
 
 ### Gotchas
 

@@ -45,10 +45,10 @@ body:
   - type: dropdown
     id: installer
     attributes:
-      label: Which installer are you using?
+      label: Which install path are you using?
       options:
-        - memory.ps1 (Windows)
-        - memory_mac.sh (macOS / Linux)
+        - Unified Node CLI installer
+        - Installed helper scripts (`scripts/memory/*.ps1` / `scripts/memory/*.sh`)
         - Both
     validations:
       required: true
@@ -76,7 +76,7 @@ body:
       label: Steps to reproduce
       description: Minimal steps to reproduce the issue.
       placeholder: |
-        1. Run `powershell -ExecutionPolicy Bypass -File .\memory.ps1`
+        1. Run `node bin/mnemo.js --yes --repo-root <temp-dir> --project-name Repro`
         2. Then run `...`
         3. See error
     validations:

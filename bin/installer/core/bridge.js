@@ -36,8 +36,13 @@ function readlinkSafe(p) {
 /**
  * Sync files one-way: src → dst. Only copies files that don't exist in dst
  * or are newer in src.
+ *
+ * @param {string} src
+ * @param {string} dst
+ * @param {object} [opts]
+ * @param {(srcPath: string, entry: import("fs").Dirent) => boolean} [opts.filter]
  */
-function syncOneWay(src, dst) {
+function syncOneWay(src, dst, opts = {}) {
   if (!fs.existsSync(src)) return 0;
   fs.mkdirSync(dst, { recursive: true });
 
@@ -48,8 +53,12 @@ function syncOneWay(src, dst) {
     const srcPath = path.join(src, entry.name);
     const dstPath = path.join(dst, entry.name);
 
+    if (opts.filter && !opts.filter(srcPath, entry)) {
+      continue;
+    }
+
     if (entry.isDirectory()) {
-      count += syncOneWay(srcPath, dstPath);
+      count += syncOneWay(srcPath, dstPath, opts);
     } else {
       let needsCopy = !fs.existsSync(dstPath);
       if (!needsCopy) {
@@ -99,6 +108,7 @@ function tryJunction(target, linkPath) {
 function ensureDirBridge(canonical, bridge, opts = {}) {
   fs.mkdirSync(canonical, { recursive: true });
   fs.mkdirSync(path.dirname(bridge), { recursive: true });
+  const syncOpts = opts.filter ? { filter: opts.filter } : undefined;
 
   // Already a valid symlink?
   if (isSymlink(bridge)) {
@@ -121,8 +131,8 @@ function ensureDirBridge(canonical, bridge, opts = {}) {
       console.log(`[DRY RUN] WOULD MIRROR: ${bridge} <-> ${canonical}`);
       return "dry-run";
     }
-    syncOneWay(bridge, canonical);
-    syncOneWay(canonical, bridge);
+    syncOneWay(bridge, canonical, syncOpts);
+    syncOneWay(canonical, bridge, syncOpts);
     console.log(`BRIDGE (mirror): ${bridge} <-> ${canonical}`);
     return "mirror";
   }
@@ -142,7 +152,7 @@ function ensureDirBridge(canonical, bridge, opts = {}) {
 
     // Fallback: mirror copy
     fs.mkdirSync(bridge, { recursive: true });
-    syncOneWay(canonical, bridge);
+    syncOneWay(canonical, bridge, syncOpts);
     console.log(`BRIDGE (mirror): ${bridge} <-> ${canonical}`);
     return "mirror";
   }

@@ -17,7 +17,7 @@ Closes #<!-- issue number -->
 
 ## Changes
 
-<!-- List the files changed and why. For installers, note if the same change was applied to both memory.ps1 AND memory_mac.sh. -->
+<!-- List the files changed and why. For installer changes, note which unified installer modules/templates were updated. -->
 
 - 
 - 
@@ -26,15 +26,15 @@ Closes #<!-- issue number -->
 
 <!-- How did you test this? Paste the commands you ran and their output. -->
 
-- [ ] Ran `memory.ps1` / `memory_mac.sh` from scratch in a clean directory
+- [ ] Ran `node bin/mnemo.js --yes --repo-root <temp-dir> --project-name <name>` from scratch in a clean directory
 - [ ] Ran installer a second time (idempotency — should skip existing files)
-- [ ] Ran installer with `-Force` / `--force` (should overwrite files)
+- [ ] Ran installer with `--force` (should overwrite files)
 - [ ] Ran `scripts/memory/lint-memory.ps1` / `lint-memory.sh` — passed
 - [ ] Ran `scripts/memory/rebuild-memory-index.ps1` / `rebuild-memory-index.sh` — passed
 
 ## Compatibility checklist
 
-- [ ] Change applies equally to both `memory.ps1` (Windows) and `memory_mac.sh` (macOS/Linux), **or** the change is platform-specific and that is intentional (explain below)
+- [ ] Change is reflected in the unified Node installer and any affected generated helper templates (`.ps1` / `.sh`), **or** the change is intentionally platform-specific (explain below)
 - [ ] No new required dependencies added without updating `CONTRIBUTING.md` support matrix
 - [ ] `VERSION` bumped if user-visible output changed
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`

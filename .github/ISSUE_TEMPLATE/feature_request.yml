@@ -36,9 +36,8 @@ body:
     attributes:
       label: Which part of Mnemo does this affect?
       options:
-        - Windows installer (memory.ps1)
-        - macOS/Linux installer (memory_mac.sh)
-        - Both installers
+        - Unified installer CLI (`bin/mnemo.js`)
+        - Installer modules / templates (`bin/installer/`, `scripts/memory/installer/templates/`)
         - Helper scripts (scripts/memory/)
         - Vector layer (mnemo_vector.py)
         - Documentation
