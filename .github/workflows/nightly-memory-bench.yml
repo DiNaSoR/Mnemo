@@ -33,7 +33,7 @@ jobs:
 
       - name: Restore baseline metrics (if exists)
         id: restore-baseline
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: /tmp/bench-baseline.json
           key: bench-baseline-${{ github.ref_name }}
@@ -76,7 +76,7 @@ jobs:
         run: cp /tmp/bench-current.json /tmp/bench-baseline.json
 
       - name: Save baseline metrics
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: /tmp/bench-baseline.json
           key: bench-baseline-${{ github.ref_name }}-${{ github.run_id }}
